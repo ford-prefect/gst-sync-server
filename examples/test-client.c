@@ -39,8 +39,6 @@ int main (int argc, char **argv)
 
   loop = g_main_loop_new (NULL, FALSE);
 
-  gst_element_set_state (playbin, GST_STATE_PLAYING);
-
   g_main_loop_run (loop);
 
   g_object_unref (loop);

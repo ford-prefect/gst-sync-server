@@ -34,8 +34,10 @@ struct _GstSyncClient {
   GstSyncServerInfo *info;
 
   GstPipeline *pipeline;
+  GstClock *clock;
 
   GstSyncTcpControlClient *client;
+  gboolean synchronised;
 };
 
 struct _GstSyncClientClass {
@@ -53,6 +55,7 @@ enum {
 };
 
 #define DEFAULT_PORT 0
+#define DEFAULT_SEEK_TOLERANCE (50 * GST_MSECOND)
 
 static void
 gst_sync_client_dispose (GObject * object)
@@ -62,6 +65,11 @@ gst_sync_client_dispose (GObject * object)
   if (self->pipeline) {
     gst_object_unref (self->pipeline);
     self->pipeline = NULL;
+  }
+
+  if (self->clock) {
+    gst_object_unref (self->clock);
+    self->clock = NULL;
   }
 
   g_free (self->control_addr);
@@ -80,29 +88,94 @@ gst_sync_client_dispose (GObject * object)
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
+static gboolean
+bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
+{
+  GstSyncClient *self = GST_SYNC_CLIENT (user_data);
+
+  switch (GST_MESSAGE_TYPE (message)) {
+    case GST_MESSAGE_ELEMENT: {
+      const GstStructure *st;
+
+      if (self->synchronised)
+        break;
+
+      st = gst_message_get_structure (message);
+      if (!gst_structure_has_name (st, "gst-netclock-statistics"))
+        break;
+
+      gst_structure_get_boolean (st, "synchronised", &self->synchronised);
+      if (!self->synchronised)
+        break;
+
+      /* FIXME: should have a timeout? */
+      gst_clock_wait_for_sync (self->clock, GST_CLOCK_TIME_NONE);
+
+      GST_INFO_OBJECT (self, "Clock is synchronised, starting playback");
+
+      g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
+
+      gst_element_set_start_time (GST_ELEMENT (self->pipeline),
+          GST_CLOCK_TIME_NONE);
+
+      gst_element_set_base_time (GST_ELEMENT (self->pipeline),
+          self->info->base_time);
+
+      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
+
+      break;
+    }
+
+    case GST_MESSAGE_STATE_CHANGED: {
+      GstState old_state, new_state;
+      GstClockTime now;
+
+      gst_message_parse_state_changed (message, NULL, &new_state, NULL);
+
+      if (old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) {
+        now = gst_clock_get_time (self->clock);
+
+        if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
+          /* Let's seek ahead to prevent excessive clipping */
+          /* FIXME: what about live pipelines? */
+          gst_element_seek_simple (GST_ELEMENT (self->pipeline),
+              now - self->info->base_time,
+              GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_FLUSH,
+              GST_FORMAT_TIME);
+        }
+      }
+
+      break;
+    }
+
+    default:
+      break;
+  }
+}
+
 static void
 gst_sync_client_constructed (GObject * object)
 {
   GstSyncClient *self = GST_SYNC_CLIENT (object);
-  GstClock *clock;
+  GstBus *bus;
 
   G_OBJECT_CLASS (parent_class)->constructed (object);
 
+  /* FIXME: This should become async */
   self->client = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_CLIENT, "address",
       self->control_addr, "port", self->control_port, NULL);
 
   g_object_get (self->client, "sync-info", &self->info, NULL);
   
-  clock = gst_net_client_clock_new ("sync-server-clock", self->info->clock_addr,
-      self->info->clock_port, 0);
-  gst_pipeline_use_clock (self->pipeline, clock);
+  self->clock = gst_net_client_clock_new ("sync-server-clock",
+      self->info->clock_addr, self->info->clock_port, 0);
+  gst_pipeline_use_clock (self->pipeline, self->clock);
 
-  g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
+  bus = gst_pipeline_get_bus (self->pipeline);
+  g_object_set (self->clock, "bus", bus, NULL);
+  gst_bus_add_watch (bus, bus_cb, self);
 
-  gst_element_set_start_time (GST_ELEMENT (self->pipeline),
-      GST_CLOCK_TIME_NONE);
-  gst_element_set_base_time (GST_ELEMENT (self->pipeline),
-      self->info->base_time);
+  gst_object_unref (bus);
 }
 
 static void
@@ -197,6 +270,7 @@ gst_sync_client_init (GstSyncClient * self)
   self->control_addr = NULL;
   self->control_port = DEFAULT_PORT;
   self->pipeline = NULL;
+  self->synchronised = FALSE;
 }
 
 /* FIXME: Add a mechanism to specify transport rather than hard-coded TCP */
