@@ -388,6 +388,23 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
   return TRUE;
 }
 
+static gboolean
+autoplug_continue_cb (GstElement * uridecodebin, GstPad * pad, GstCaps * caps,
+    gpointer user_data)
+{
+  /* We're done once a parser is plugged in */
+  const GstStructure *st;
+  gboolean parsed = FALSE, framed = FALSE;
+
+  st = gst_caps_get_structure (caps, 0);
+
+  if ((gst_structure_get_boolean (st, "parsed", &parsed) && parsed) ||
+      (gst_structure_get_boolean (st, "framed", &framed) && framed))
+    return FALSE;
+
+  return TRUE;
+}
+
 gboolean
 gst_sync_server_start (GstSyncServer * self, GError ** error)
 {
@@ -424,6 +441,8 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   /* FIXME: set caps to skip plugging decoders */
   g_object_set (uridecodebin, "uri", self->uri, NULL);
   g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb), self);
+  g_signal_connect (uridecodebin, "autoplug-continue",
+      G_CALLBACK (autoplug_continue_cb), NULL);
 
   self->pipeline = gst_pipeline_new ("sync-server");
   gst_bin_add (GST_BIN (self->pipeline), uridecodebin);
