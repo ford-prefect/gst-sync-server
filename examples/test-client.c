@@ -25,11 +25,38 @@
 #define DEFAULT_ADDR "127.0.0.1"
 #define DEFAULT_PORT 3695
 
+static gchar *addr = NULL;
+static gint port = DEFAULT_PORT;
+
 int main (int argc, char **argv)
 {
   GstSyncClient *client;
   GMainLoop *loop;
   GstElement *playbin;
+  GError *err;
+  GOptionContext *ctx;
+  static GOptionEntry entries[] =
+  {
+    { "address", 'a', 0, G_OPTION_ARG_STRING, &addr, "Address to connect to",
+      "ADDR" },
+    { "port", 'p', 0, G_OPTION_ARG_INT, &port, "Port to connect to",
+      "PORT" },
+    { NULL }
+  };
+
+  ctx = g_option_context_new ("gst-sync-server example client");
+  g_option_context_add_main_entries (ctx, entries, NULL);
+  g_option_context_add_group (ctx, gst_init_get_option_group ());
+
+  if (!g_option_context_parse (ctx, &argc, &argv, &err)) {
+    g_print ("Failed to parse command line arguments: %s\n", err->message);
+    return -1;
+  }
+
+  g_option_context_free (ctx);
+
+  if (!addr)
+    addr = g_strdup (DEFAULT_ADDR);
 
   gst_init (&argc, &argv);
 
@@ -43,4 +70,6 @@ int main (int argc, char **argv)
 
   g_object_unref (loop);
   g_object_unref (client);
+
+  g_free (addr);
 }
