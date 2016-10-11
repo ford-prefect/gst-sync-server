@@ -154,6 +154,8 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
     default:
       break;
   }
+
+  return TRUE;
 }
 
 static void
