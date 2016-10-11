@@ -130,18 +130,21 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       GstState old_state, new_state;
       GstClockTime now;
 
-      gst_message_parse_state_changed (message, NULL, &new_state, NULL);
+      gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
 
-      if (old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) {
+      if ((old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) &&
+          GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
         now = gst_clock_get_time (self->clock);
 
         if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
           /* Let's seek ahead to prevent excessive clipping */
           /* FIXME: what about live pipelines? */
-          gst_element_seek_simple (GST_ELEMENT (self->pipeline),
-              now - self->info->base_time,
-              GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_FLUSH,
-              GST_FORMAT_TIME);
+          if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
+                GST_FORMAT_TIME,
+                GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_FLUSH,
+                now - self->info->base_time)) {
+            GST_WARNING_OBJECT (self, "Could not perform seek");
+          }
         }
       }
 
