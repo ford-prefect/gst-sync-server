@@ -153,7 +153,8 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
           /* Let's seek ahead to prevent excessive clipping */
           /* FIXME: test with live pipelines */
-          GST_ERROR_OBJECT (self, "Seeking: %lu", now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
+          GST_INFO_OBJECT (self, "Seeking: %lu",
+              now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
           if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
                 GST_FORMAT_TIME,
                 GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
@@ -187,7 +188,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
         if (gst_element_query_position (GST_ELEMENT (self->pipeline),
               GST_FORMAT_TIME, &pos)) {
-          GST_ERROR_OBJECT (self, "Adding offset: %lu", pos);
+          GST_INFO_OBJECT (self, "Adding offset: %lu", pos);
           set_base_time (self, self->info->base_time + pos);
 
           gst_bus_disable_sync_message_emission (bus);
@@ -218,6 +219,7 @@ gst_sync_client_constructed (GObject * object)
       self->control_addr, "port", self->control_port, NULL);
 
   g_object_get (self->client, "sync-info", &self->info, NULL);
+  GST_INFO_OBJECT (self, "Got sync information, URI is :%s", self->info->uri);
   
   self->clock = gst_net_client_clock_new ("sync-server-clock",
       self->info->clock_addr, self->info->clock_port, 0);
