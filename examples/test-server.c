@@ -66,7 +66,7 @@ int main (int argc, char **argv)
   if (!addr)
     addr = g_strdup (DEFAULT_ADDR);
 
-  server = gst_sync_server_new (DEFAULT_ADDR, DEFAULT_PORT);
+  server = gst_sync_server_new (addr, port);
 
   g_object_set (server, "uri", uri, NULL);
 

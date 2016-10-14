@@ -62,7 +62,7 @@ int main (int argc, char **argv)
 
   playbin = gst_element_factory_make ("playbin", NULL);
   client =
-    gst_sync_client_new (DEFAULT_ADDR, DEFAULT_PORT, GST_PIPELINE (playbin));
+    gst_sync_client_new (addr, port, GST_PIPELINE (playbin));
 
   loop = g_main_loop_new (NULL, FALSE);
 
