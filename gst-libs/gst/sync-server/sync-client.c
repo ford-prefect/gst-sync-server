@@ -45,7 +45,8 @@ struct _GstSyncClient {
   GstSyncTcpControlClient *client;
   gboolean synchronised;
 
-  int seek_state;
+  /* See bus_cb() for why this needs to be atomic */
+  volatile int seek_state;
 };
 
 struct _GstSyncClientClass {
@@ -142,16 +143,17 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
 
-      if (self->seek_state == NEED_SEEK &&
+      if (g_atomic_int_get (&self->seek_state) == NEED_SEEK &&
           (old_state == GST_STATE_PAUSED && new_state == GST_STATE_PLAYING) &&
           GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
 
         now = gst_clock_get_time (self->clock);
-        self->seek_state = IN_SEEK;
+        g_atomic_int_set (&self->seek_state, IN_SEEK);
 
         if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
           /* Let's seek ahead to prevent excessive clipping */
           /* FIXME: test with live pipelines */
+          GST_ERROR_OBJECT (self, "Seeking: %lu", now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
           if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
                 GST_FORMAT_TIME,
                 GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
@@ -164,7 +166,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
           /* For the seek case, the base time will be set after the seek */
           set_base_time (self, self->info->base_time);
 
-          self->seek_state = DONE_SEEK;
+          g_atomic_int_set (&self->seek_state, DONE_SEEK);
         }
       }
 
@@ -172,17 +174,26 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
     }
 
     case GST_MESSAGE_ASYNC_DONE: {
+        /* This message is first examined synchronously in the sync-message signal.
+         * The rationale for doing this is that (a) we want the most accurate
+         * possible final seek position, and examining position asynchronously
+         * will not guarantee that, and (b) setting the base time as early as
+         * possible means we'll start rendering correctly synchronised buffers
+         * sooner */
         GstClockTime pos, start;
 
-        if (self->seek_state != IN_SEEK)
+        if (g_atomic_int_get (&self->seek_state) != IN_SEEK)
           break;
 
         if (gst_element_query_position (GST_ELEMENT (self->pipeline),
               GST_FORMAT_TIME, &pos)) {
+          GST_ERROR_OBJECT (self, "Adding offset: %lu", pos);
           set_base_time (self, self->info->base_time + pos);
+
+          gst_bus_disable_sync_message_emission (bus);
         }
 
-        self->seek_state = DONE_SEEK;
+        g_atomic_int_set (&self->seek_state, DONE_SEEK);
 
         break;
     }
@@ -215,6 +226,10 @@ gst_sync_client_constructed (GObject * object)
   bus = gst_pipeline_get_bus (self->pipeline);
   g_object_set (self->clock, "bus", bus, NULL);
   gst_bus_add_watch (bus, bus_cb, self);
+  /* See bus_cb() for why we do this */
+  gst_bus_enable_sync_message_emission (bus);
+  g_signal_connect (G_OBJECT (bus), "sync-message::async-done",
+      G_CALLBACK (bus_cb), self);
 
   gst_object_unref (bus);
 }
@@ -312,7 +327,7 @@ gst_sync_client_init (GstSyncClient * self)
   self->control_port = DEFAULT_PORT;
   self->pipeline = NULL;
   self->synchronised = FALSE;
-  self->seek_state = NEED_SEEK;
+  g_atomic_int_set (&self->seek_state, NEED_SEEK);
 }
 
 /* FIXME: Add a mechanism to specify transport rather than hard-coded TCP */
