@@ -25,6 +25,12 @@
 #include "sync-client.h"
 #include "sync-tcp-control-client.h"
 
+enum {
+  NEED_SEEK,
+  IN_SEEK,
+  DONE_SEEK,
+};
+
 struct _GstSyncClient {
   GObject parent;
 
@@ -38,6 +44,8 @@ struct _GstSyncClient {
 
   GstSyncTcpControlClient *client;
   gboolean synchronised;
+
+  int seek_state;
 };
 
 struct _GstSyncClientClass {
@@ -88,6 +96,14 @@ gst_sync_client_dispose (GObject * object)
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
+static void
+set_base_time (GstSyncClient * self, GstClockTime base_time)
+{
+  gst_element_set_start_time (GST_ELEMENT (self->pipeline),
+      GST_CLOCK_TIME_NONE);
+  gst_element_set_base_time (GST_ELEMENT (self->pipeline), base_time);
+}
+
 static gboolean
 bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 {
@@ -115,12 +131,6 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
 
-      gst_element_set_start_time (GST_ELEMENT (self->pipeline),
-          GST_CLOCK_TIME_NONE);
-
-      gst_element_set_base_time (GST_ELEMENT (self->pipeline),
-          self->info->base_time);
-
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
 
       break;
@@ -132,23 +142,49 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
 
-      if ((old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) &&
+      if (self->seek_state == NEED_SEEK &&
+          (old_state == GST_STATE_PAUSED && new_state == GST_STATE_PLAYING) &&
           GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
+
         now = gst_clock_get_time (self->clock);
+        self->seek_state = IN_SEEK;
 
         if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
           /* Let's seek ahead to prevent excessive clipping */
-          /* FIXME: what about live pipelines? */
+          /* FIXME: test with live pipelines */
           if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
                 GST_FORMAT_TIME,
-                GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_FLUSH,
-                now - self->info->base_time)) {
+                GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
+                now - self->info->base_time + DEFAULT_SEEK_TOLERANCE)) {
             GST_WARNING_OBJECT (self, "Could not perform seek");
+
+            set_base_time (self, self->info->base_time);
           }
+        } else {
+          /* For the seek case, the base time will be set after the seek */
+          set_base_time (self, self->info->base_time);
+
+          self->seek_state = DONE_SEEK;
         }
       }
 
       break;
+    }
+
+    case GST_MESSAGE_ASYNC_DONE: {
+        GstClockTime pos, start;
+
+        if (self->seek_state != IN_SEEK)
+          break;
+
+        if (gst_element_query_position (GST_ELEMENT (self->pipeline),
+              GST_FORMAT_TIME, &pos)) {
+          set_base_time (self, self->info->base_time + pos);
+        }
+
+        self->seek_state = DONE_SEEK;
+
+        break;
     }
 
     default:
@@ -276,6 +312,7 @@ gst_sync_client_init (GstSyncClient * self)
   self->control_port = DEFAULT_PORT;
   self->pipeline = NULL;
   self->synchronised = FALSE;
+  self->seek_state = NEED_SEEK;
 }
 
 /* FIXME: Add a mechanism to specify transport rather than hard-coded TCP */
