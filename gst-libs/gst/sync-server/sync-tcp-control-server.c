@@ -32,6 +32,8 @@ struct _GstSyncTcpControlServer {
 
   gchar *addr;
   gint port;
+
+  GRWLock info_lock;
   GstSyncServerInfo *info;
 
   GSocketService *server;
@@ -73,11 +75,13 @@ gst_sync_tcp_control_server_set_property (GObject * object, guint property_id,
       break;
 
     case PROP_SYNC_INFO:
-      /* FIXME: add locking, disseminate updated information */
+      g_rw_lock_writer_lock (&self->info_lock);
       if (self->info)
         gst_sync_server_info_free (self->info);
 
       self->info = g_value_dup_boxed (value);
+      g_rw_lock_writer_unlock (&self->info_lock);
+
       break;
 
     default:
@@ -102,7 +106,9 @@ gst_sync_tcp_control_server_get_property (GObject * object, guint property_id,
       break;
 
     case PROP_SYNC_INFO:
+      g_rw_lock_reader_lock (&self->info_lock);
       g_value_set_boxed (value, self->info);
+      g_rw_lock_reader_unlock (&self->info_lock);
       break;
 
     default:
@@ -130,7 +136,31 @@ gst_sync_tcp_control_server_dispose (GObject * object)
     self->info = NULL;
   }
 
+  g_rw_lock_clear (&self->info_lock);
+
   G_OBJECT_CLASS (parent_class)->dispose (object);
+}
+
+static void
+send_sync_info (GstSyncTcpControlServer * self, GSocket * socket)
+{
+  JsonNode *node;
+  gchar *out;
+  gsize len;
+  GError *err;
+
+  g_rw_lock_reader_lock (&self->info_lock);
+  node = json_boxed_serialize (GST_TYPE_SYNC_SERVER_INFO, self->info);
+  g_rw_lock_reader_unlock (&self->info_lock);
+
+  out = json_to_string (node, TRUE);
+  len = strlen (out);
+  json_node_unref (node);
+
+  if (g_socket_send (socket, out, len, NULL, &err) != len) {
+    g_warning ("Could not write out %lu bytes: %s", len, err->message);
+    g_error_free (err);
+  }
 }
 
 static gboolean
@@ -139,21 +169,11 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
 {
   GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (user_data);
   GSocket *socket;
-  JsonNode *node;
-  gchar *out;
-  gsize len;
-  GError *err;
-
-  node = json_boxed_serialize (GST_TYPE_SYNC_SERVER_INFO, self->info);
-  out = json_to_string (node, TRUE);
-  len = strlen (out);
-  json_node_unref (node);
 
   socket = g_socket_connection_get_socket (connection);
-  if (g_socket_send (socket, out, len, NULL, &err) != len) {
-    g_warning ("Could not write out %lu bytes: %s", len, err->message);
-    g_error_free (err);
-  }
+
+  if (self->info)
+    send_sync_info (self, socket);
 
   while (g_socket_is_connected (socket)) {
     g_socket_condition_wait (socket, G_IO_IN, NULL, NULL);
@@ -218,5 +238,6 @@ gst_sync_tcp_control_server_init (GstSyncTcpControlServer *self)
   self->addr = NULL;
   self->port = 0;
 
+  g_rw_lock_init (&self->info_lock);
   self->info = NULL;
 }
