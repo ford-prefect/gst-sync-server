@@ -19,10 +19,15 @@
  */
 
 #include <string.h>
+#include <unistd.h>
 
 #include <glib-object.h>
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
+
+#include <glib.h>
+#include <glib/gstdio.h>
+#include <glib-unix.h>
 
 #include "sync-server.h"
 #include "sync-tcp-control-server.h"
@@ -150,6 +155,10 @@ send_sync_info (GstSyncTcpControlServer * self, GSocket * socket)
   GError *err;
 
   g_rw_lock_reader_lock (&self->info_lock);
+  if (!self->info) {
+    g_rw_lock_reader_unlock (&self->info_lock);
+    return;
+  }
   node = json_boxed_serialize (GST_TYPE_SYNC_SERVER_INFO, self->info);
   g_rw_lock_reader_unlock (&self->info_lock);
 
@@ -175,6 +184,35 @@ socket_error_cb (GSocket * socket, GIOCondition cond, gpointer user_data)
   return FALSE;
 }
 
+static void
+sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
+{
+  gint fd = GPOINTER_TO_INT (user_data);
+  char c = 0;
+
+  if (write (fd, &c, sizeof (c)) < 0)
+    g_warning ("Failed to write data to fd");
+}
+
+struct SyncInfoData {
+  GstSyncTcpControlServer *self;
+  GSocket *socket;
+};
+
+static gboolean
+sync_info_updated (gint fd, GIOCondition cond, gpointer user_data)
+{
+  struct SyncInfoData *data = (struct SyncInfoData *) user_data;
+  char c;
+
+  if (read (fd, &c, sizeof (c) <= 0))
+    g_warning ("Failed to read data from fd");
+
+  send_sync_info (data->self, data->socket);
+
+  return TRUE;
+}
+
 static gboolean
 run_cb (GThreadedSocketService * service, GSocketConnection * connection,
     GObject * source_object G_GNUC_UNUSED, gpointer user_data)
@@ -183,11 +221,14 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
   GSocket *socket;
   GSource *source;
   GMainLoop *loop;
+  gint fds[2] = { -1, };
+  gulong sig_id;
+  struct SyncInfoData d;
+  GError *err;
 
   socket = g_socket_connection_get_socket (connection);
 
-  if (self->info)
-    send_sync_info (self, socket);
+  send_sync_info (self, socket);
 
   loop = g_main_loop_new (g_main_context_get_thread_default (), FALSE);
 
@@ -195,9 +236,32 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
   g_source_set_callback (source, (GSourceFunc) socket_error_cb, loop, NULL);
   g_source_attach (source, g_main_context_get_thread_default ());
 
-  g_main_loop_run (loop);
-  g_main_loop_unref (loop);
+  if (!g_unix_open_pipe (fds, 0, &err)) {
+    g_warning ("Could not create pipe: %s", err->message);
+    g_error_free (err);
+    goto done;
+  }
 
+  /* We get a notification every time sync-info changes, and dispatch that to
+   * the client thread */
+  source = g_unix_fd_source_new (fds[0], G_IO_IN);
+  d.self = self;
+  d.socket = socket;
+  g_source_set_callback (source, (GSourceFunc) sync_info_updated, &d, NULL);
+  g_source_attach (source, g_main_context_get_thread_default ());
+
+  sig_id = g_signal_connect (self, "notify::sync-info",
+      G_CALLBACK (sync_info_notify), GINT_TO_POINTER (fds[1]));
+
+  g_main_loop_run (loop);
+
+  g_signal_handler_disconnect (self, sig_id);
+
+done:
+  g_close (fds[0], NULL);
+  g_close (fds[1], NULL);
+
+  g_main_loop_unref (loop);
   return TRUE;
 }
 

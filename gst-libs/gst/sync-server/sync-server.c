@@ -21,6 +21,7 @@
 #include <gst/gst.h>
 #include <gst/net/gstnet.h>
 #include <json-glib/json-glib.h>
+#include <glib-unix.h>
 
 #include "sync-server.h"
 #include "sync-tcp-control-server.h"
@@ -372,10 +373,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         info.uri = g_strdup (self->uri);
         info.base_time = gst_element_get_base_time (self->pipeline);
 
-        /* FIXME: make the transport configurable */
-        self->server = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_SERVER,
-            "address", self->control_addr, "port", self->control_port,
-            "sync-info", &info, NULL);
+        g_object_set (self->server, "sync-info", &info, NULL);
       }
 
       break;
@@ -418,6 +416,10 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
     /* FIXME: Set error */
     goto fail;
   }
+
+  /* FIXME: make the transport configurable */
+  self->server = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_SERVER,
+      "address", self->control_addr, "port", self->control_port, NULL);
 
   self->clock_provider =
     gst_net_time_provider_new (clock, self->control_addr, 0);

@@ -28,7 +28,7 @@ AC_ISC_POSIX
 
 PKG_PROG_PKG_CONFIG
 
-PKG_CHECK_MODULES(GLIB, [glib-2.0 gobject-2.0 gio-2.0 > 2.22 ])
+PKG_CHECK_MODULES(GLIB, [glib-2.0 gobject-2.0 gio-2.0 > 2.30 ])
 PKG_CHECK_MODULES(JSON_GLIB, [json-glib-1.0 >= 1.0])
 PKG_CHECK_MODULES(GST, [gstreamer-1.0 gstreamer-net-1.0 >= 1.6])
 
