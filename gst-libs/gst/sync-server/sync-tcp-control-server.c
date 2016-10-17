@@ -164,20 +164,39 @@ send_sync_info (GstSyncTcpControlServer * self, GSocket * socket)
 }
 
 static gboolean
+socket_error_cb (GSocket * socket, GIOCondition cond, gpointer user_data)
+{
+  GMainLoop *loop = (GMainLoop *) user_data;
+
+  g_message ("Got error on a client socket, closing connection");
+
+  g_main_loop_quit (loop);
+
+  return FALSE;
+}
+
+static gboolean
 run_cb (GThreadedSocketService * service, GSocketConnection * connection,
     GObject * source_object G_GNUC_UNUSED, gpointer user_data)
 {
   GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (user_data);
   GSocket *socket;
+  GSource *source;
+  GMainLoop *loop;
 
   socket = g_socket_connection_get_socket (connection);
 
   if (self->info)
     send_sync_info (self, socket);
 
-  while (g_socket_is_connected (socket)) {
-    g_socket_condition_wait (socket, G_IO_IN, NULL, NULL);
-  }
+  loop = g_main_loop_new (g_main_context_get_thread_default (), FALSE);
+
+  source = g_socket_create_source (socket, G_IO_ERR, NULL);
+  g_source_set_callback (source, (GSourceFunc) socket_error_cb, loop, NULL);
+  g_source_attach (source, g_main_context_get_thread_default ());
+
+  g_main_loop_run (loop);
+  g_main_loop_unref (loop);
 
   return TRUE;
 }
