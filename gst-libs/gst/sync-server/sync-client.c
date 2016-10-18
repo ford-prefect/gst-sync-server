@@ -38,6 +38,7 @@ struct _GstSyncClient {
   gint control_port;
 
   GstSyncServerInfo *info;
+  GMutex info_lock;
 
   GstPipeline *pipeline;
   GstClock *clock;
@@ -89,11 +90,13 @@ gst_sync_client_dispose (GObject * object)
     self->info = NULL;
   }
 
+  g_mutex_clear (&self->info_lock);
+
   if (self->client) {
     g_object_unref (self->client);
     self->client = NULL;
   }
-  
+
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
@@ -130,7 +133,9 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       GST_INFO_OBJECT (self, "Clock is synchronised, starting playback");
 
+      g_mutex_lock (&self->info_lock);
       g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
+      g_mutex_unlock (&self->info_lock);
 
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
 
@@ -150,6 +155,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         now = gst_clock_get_time (self->clock);
         g_atomic_int_set (&self->seek_state, IN_SEEK);
 
+        g_mutex_lock (&self->info_lock);
         if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
           /* Let's seek ahead to prevent excessive clipping */
           /* FIXME: test with live pipelines */
@@ -169,6 +175,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
           g_atomic_int_set (&self->seek_state, DONE_SEEK);
         }
+        g_mutex_unlock (&self->info_lock);
       }
 
       break;
@@ -189,7 +196,10 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         if (gst_element_query_position (GST_ELEMENT (self->pipeline),
               GST_FORMAT_TIME, &pos)) {
           GST_INFO_OBJECT (self, "Adding offset: %lu", pos);
+
+          g_mutex_lock (&self->info_lock);
           set_base_time (self, self->info->base_time + pos);
+          g_mutex_unlock (&self->info_lock);
 
           gst_bus_disable_sync_message_emission (bus);
         }
@@ -207,22 +217,20 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 }
 
 static void
-gst_sync_client_constructed (GObject * object)
+sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 {
-  GstSyncClient *self = GST_SYNC_CLIENT (object);
+  GstSyncClient *self = GST_SYNC_CLIENT (user_data);
   GstBus *bus;
 
-  G_OBJECT_CLASS (parent_class)->constructed (object);
-
-  /* FIXME: This should become async */
-  self->client = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_CLIENT, "address",
-      self->control_addr, "port", self->control_port, NULL);
-
+  g_mutex_lock (&self->info_lock);
   g_object_get (self->client, "sync-info", &self->info, NULL);
+
   GST_INFO_OBJECT (self, "Got sync information, URI is :%s", self->info->uri);
-  
+
   self->clock = gst_net_client_clock_new ("sync-server-clock",
       self->info->clock_addr, self->info->clock_port, 0);
+  g_mutex_unlock (&self->info_lock);
+
   gst_pipeline_use_clock (self->pipeline, self->clock);
 
   bus = gst_pipeline_get_bus (self->pipeline);
@@ -234,6 +242,24 @@ gst_sync_client_constructed (GObject * object)
       G_CALLBACK (bus_cb), self);
 
   gst_object_unref (bus);
+}
+
+static void
+gst_sync_client_constructed (GObject * object)
+{
+  GstSyncClient *self = GST_SYNC_CLIENT (object);
+
+  G_OBJECT_CLASS (parent_class)->constructed (object);
+
+  self->client = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_CLIENT, "address",
+      self->control_addr, "port", self->control_port, NULL);
+
+  g_signal_connect (self->client, "notify::sync-info",
+      G_CALLBACK (sync_info_notify), self);
+
+  /* FIXME: the connect above is racy -- client might finish reading before we
+   * can hook up the notify. We need to separate out construction and start on
+   * the TCP client */
 }
 
 static void
@@ -327,6 +353,10 @@ gst_sync_client_init (GstSyncClient * self)
 {
   self->control_addr = NULL;
   self->control_port = DEFAULT_PORT;
+
+  self->info = NULL;
+  g_mutex_init (&self->info_lock);
+
   self->pipeline = NULL;
   self->synchronised = FALSE;
   g_atomic_int_set (&self->seek_state, NEED_SEEK);

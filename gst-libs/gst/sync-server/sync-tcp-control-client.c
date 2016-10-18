@@ -36,6 +36,7 @@ struct _GstSyncTcpControlClient {
   GstSyncServerInfo *info;
 
   GSocketConnection *conn;
+  gchar buf[4096];
 };
 
 struct _GstSyncTcpControlClientClass {
@@ -54,6 +55,8 @@ enum {
 };
 
 #define DEFAULT_PORT 0
+
+static void read_sync_info (GstSyncTcpControlClient * self);
 
 static void
 gst_sync_tcp_control_client_set_property (GObject * object, guint property_id,
@@ -127,22 +130,20 @@ gst_sync_tcp_control_client_dispose (GObject * object)
 }
 
 static void
-read_sync_info (GstSyncTcpControlClient * self)
+read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
 {
-  GInputStream *istream;
-  gchar msg[4096] = { 0, };
+  GstSyncTcpControlClient * self = GST_SYNC_TCP_CONTROL_CLIENT (user_data);
+  GInputStream *istream = (GInputStream *) object;
   JsonNode *node;
   GError *err;
 
-  istream = g_io_stream_get_input_stream (G_IO_STREAM (self->conn));
-
-  if (g_input_stream_read (istream, msg, sizeof (msg) - 1, NULL, &err) < 1) {
+  if (g_input_stream_read_finish (istream, res, &err) < 1) {
     g_warning ("Could not read sync info: %s", err->message);
     g_error_free (err);
     return;
   }
 
-  node = json_from_string (msg, &err);
+  node = json_from_string (self->buf, &err);
   if (!node) {
     g_warning ("Could not parse JSON: %s", err->message);
     g_error_free (err);
@@ -154,6 +155,19 @@ read_sync_info (GstSyncTcpControlClient * self)
   json_node_unref (node);
 
   g_object_notify (G_OBJECT (self), "sync-info");
+
+  read_sync_info (self);
+}
+
+static void
+read_sync_info (GstSyncTcpControlClient * self)
+{
+  GInputStream *istream;
+
+  istream = g_io_stream_get_input_stream (G_IO_STREAM (self->conn));
+
+  g_input_stream_read_async (istream, self->buf, sizeof (self->buf) - 1, 0,
+      NULL, read_done_cb, self);
 }
 
 static void
@@ -217,4 +231,5 @@ gst_sync_tcp_control_client_init (GstSyncTcpControlClient *self)
   self->info = NULL;
 
   self->conn = NULL;
+  memset (self->buf, 0, sizeof (self->buf));
 }
