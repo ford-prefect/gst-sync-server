@@ -390,13 +390,14 @@ static gboolean
 autoplug_continue_cb (GstElement * uridecodebin, GstPad * pad, GstCaps * caps,
     gpointer user_data)
 {
-  /* We're done once an elementary audio/video stream is found, skip decode */
+  /* We're done once a parser is plugged in */
   const GstStructure *st;
+  gboolean parsed = FALSE, framed = FALSE;
 
   st = gst_caps_get_structure (caps, 0);
 
-  if (g_str_has_prefix (gst_structure_get_name (st), "video/") ||
-      g_str_has_prefix (gst_structure_get_name (st), "audio/"));
+  if ((gst_structure_get_boolean (st, "parsed", &parsed) && parsed) ||
+      (gst_structure_get_boolean (st, "framed", &framed) && framed))
     return FALSE;
 
   return TRUE;
