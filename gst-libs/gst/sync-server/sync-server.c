@@ -457,7 +457,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 
   if (gst_element_set_state (self->pipeline, GST_STATE_PLAYING) ==
       GST_STATE_CHANGE_FAILURE) {
-    GST_ERROR_OBJECT (self, "Could not create uridecodebin");
+    GST_ERROR_OBJECT (self, "Could not play uri");
     /* FIXME: Set error */
     goto fail;
   }
