@@ -200,8 +200,6 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
           g_mutex_lock (&self->info_lock);
           set_base_time (self, self->info->base_time + pos);
           g_mutex_unlock (&self->info_lock);
-
-          gst_bus_disable_sync_message_emission (bus);
         }
 
         g_atomic_int_set (&self->seek_state, DONE_SEEK);
@@ -217,31 +215,64 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 }
 
 static void
+update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
+{
+  g_mutex_lock (&self->info_lock);
+
+  if (!self->info) {
+    /* First sync info update */
+    GstBus *bus;
+
+    self->info = info;
+
+    self->clock = gst_net_client_clock_new ("sync-server-clock",
+        self->info->clock_addr, self->info->clock_port, 0);
+
+    gst_pipeline_use_clock (self->pipeline, self->clock);
+
+    bus = gst_pipeline_get_bus (self->pipeline);
+    g_object_set (self->clock, "bus", bus, NULL);
+
+    gst_bus_add_watch (bus, bus_cb, self);
+    /* See bus_cb() for why we do this */
+    gst_bus_enable_sync_message_emission (bus);
+    g_signal_connect (G_OBJECT (bus), "sync-message::async-done",
+        G_CALLBACK (bus_cb), self);
+
+    gst_object_unref (bus);
+  } else {
+    /* Sync info changed, figure out what did. We do not expect the clock parameters
+     * to change */
+
+    if (!g_str_equal (self->info->uri, info->uri) ||
+        self->info->base_time != info->base_time) {
+      /* URI or base time changed, just reset pipeline completely */
+      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
+
+      gst_sync_server_info_free (self->info);
+      self->info = info;
+
+      g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
+
+      g_atomic_int_set (&self->seek_state, NEED_SEEK);
+      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
+    }
+  }
+
+  g_mutex_unlock (&self->info_lock);
+}
+
+static void
 sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 {
   GstSyncClient *self = GST_SYNC_CLIENT (user_data);
-  GstBus *bus;
+  GstSyncServerInfo * info;
 
-  g_mutex_lock (&self->info_lock);
-  g_object_get (self->client, "sync-info", &self->info, NULL);
+  g_object_get (self->client, "sync-info", &info, NULL);
 
   GST_INFO_OBJECT (self, "Got sync information, URI is :%s", self->info->uri);
 
-  self->clock = gst_net_client_clock_new ("sync-server-clock",
-      self->info->clock_addr, self->info->clock_port, 0);
-  g_mutex_unlock (&self->info_lock);
-
-  gst_pipeline_use_clock (self->pipeline, self->clock);
-
-  bus = gst_pipeline_get_bus (self->pipeline);
-  g_object_set (self->clock, "bus", bus, NULL);
-  gst_bus_add_watch (bus, bus_cb, self);
-  /* See bus_cb() for why we do this */
-  gst_bus_enable_sync_message_emission (bus);
-  g_signal_connect (G_OBJECT (bus), "sync-message::async-done",
-      G_CALLBACK (bus_cb), self);
-
-  gst_object_unref (bus);
+  update_sync_info (self, info /* transfers ownership of info */);
 }
 
 static void
