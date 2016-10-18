@@ -135,11 +135,13 @@ read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
   GstSyncTcpControlClient * self = GST_SYNC_TCP_CONTROL_CLIENT (user_data);
   GInputStream *istream = (GInputStream *) object;
   JsonNode *node;
-  GError *err;
+  GError *err = NULL;
 
   if (g_input_stream_read_finish (istream, res, &err) < 1) {
-    g_warning ("Could not read sync info: %s", err->message);
-    g_error_free (err);
+    if (err) {
+      g_message ("Could not read sync info: %s", err->message);
+      g_error_free (err);
+    }
     return;
   }
 
