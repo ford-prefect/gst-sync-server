@@ -168,6 +168,7 @@ read_sync_info (GstSyncTcpControlClient * self)
 
   istream = g_io_stream_get_input_stream (G_IO_STREAM (self->conn));
 
+  memset (self->buf, 0, sizeof (self->buf));
   g_input_stream_read_async (istream, self->buf, sizeof (self->buf) - 1, 0,
       NULL, read_done_cb, self);
 }
@@ -233,5 +234,4 @@ gst_sync_tcp_control_client_init (GstSyncTcpControlClient *self)
   self->info = NULL;
 
   self->conn = NULL;
-  memset (self->buf, 0, sizeof (self->buf));
 }
