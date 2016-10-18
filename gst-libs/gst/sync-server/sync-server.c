@@ -439,7 +439,6 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
     goto fail;
   }
 
-  /* FIXME: set caps to skip plugging decoders */
   g_object_set (uridecodebin, "uri", self->uri, NULL);
   g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb), self);
   g_signal_connect (uridecodebin, "autoplug-continue",
@@ -448,8 +447,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   self->pipeline = gst_pipeline_new ("sync-server");
   gst_bin_add (GST_BIN (self->pipeline), uridecodebin);
 
-  /* FIXME: make latency a property */
-  gst_pipeline_set_latency (GST_PIPELINE (self->pipeline), DEFAULT_LATENCY);
+  /* FIXME: set latency (and expose a property, propagate via sync info) */
   gst_pipeline_use_clock (GST_PIPELINE (self->pipeline), clock);
   
   bus = gst_pipeline_get_bus (GST_PIPELINE (self->pipeline));

@@ -332,7 +332,6 @@ gst_sync_client_init (GstSyncClient * self)
   g_atomic_int_set (&self->seek_state, NEED_SEEK);
 }
 
-/* FIXME: Add a mechanism to specify transport rather than hard-coded TCP */
 GstSyncClient *
 gst_sync_client_new (const gchar * control_addr, gint control_port,
     GstPipeline * pipeline)
