@@ -34,6 +34,7 @@ struct _GstSyncServer {
   gint clock_port;
 
   gchar *uri;
+  GHashTable *fakesinks;
 
   gboolean started;
   GstElement *pipeline;
@@ -209,6 +210,8 @@ gst_sync_server_dispose (GObject * object)
 
   g_free (self->control_addr);
   g_free (self->uri);
+
+  g_hash_table_unref (self->fakesinks);
   
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
@@ -303,7 +306,9 @@ gst_sync_server_init (GstSyncServer * self)
   self->uri = NULL;
   self->started = FALSE;
 
-   self->server = NULL;
+  self->server = NULL;
+
+  self->fakesinks = g_hash_table_new (g_direct_hash, g_direct_equal);
 }
 
 GstSyncServer *
@@ -335,6 +340,21 @@ pad_added_cb (GstElement * bin, GstPad * pad, gpointer user_data)
 
   if (!gst_element_sync_state_with_parent (fakesink))
     GST_ERROR_OBJECT (self, "Could not sync state with parent");
+
+  g_hash_table_insert (self->fakesinks, pad, fakesink);
+}
+
+static void
+pad_removed_cb (GstElement * bin, GstPad * pad, gpointer user_data)
+{
+  GstSyncServer *self = GST_SYNC_SERVER (user_data);
+  GstElement *sink;
+
+  sink = g_hash_table_lookup (self->fakesinks, pad);
+  g_return_if_fail (sink != NULL);
+
+  gst_element_set_state (sink, GST_STATE_NULL);
+  gst_bin_remove (GST_BIN (self->pipeline), sink);
 }
 
 static gboolean
@@ -442,6 +462,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 
   g_object_set (uridecodebin, "uri", self->uri, NULL);
   g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb), self);
+  g_signal_connect (uridecodebin, "pad-removed", G_CALLBACK (pad_removed_cb), self);
   g_signal_connect (uridecodebin, "autoplug-continue",
       G_CALLBACK (autoplug_continue_cb), NULL);
 
