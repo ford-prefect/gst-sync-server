@@ -57,6 +57,7 @@ GType gst_sync_server_info_get_type ();
 void gst_sync_server_info_free (GstSyncServerInfo *info);
 
 /* API */
+GType gst_sync_server_get_type ();
 
 GstSyncServer * gst_sync_server_new (const gchar * addr, gint port);
 

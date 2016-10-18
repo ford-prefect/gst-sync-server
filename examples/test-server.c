@@ -20,7 +20,10 @@
 
 #include <glib.h>
 #include <glib-object.h>
+#include <glib/gprintf.h>
+
 #include <gst/gst.h>
+
 #include "sync-server.h"
 
 #define DEFAULT_ADDR "0.0.0.0"
@@ -29,13 +32,51 @@
 static gchar *uri = NULL;
 static gchar *addr = NULL;
 static gint port = DEFAULT_PORT;
+  GMainLoop *loop;
+
+static gboolean
+con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
+{
+  GstSyncServer *server = GST_SYNC_SERVER (user_data);
+  gchar *str = NULL;
+  gchar **tok = NULL;
+
+  if (cond & G_IO_ERR) {
+    g_message ("Error while reading from console");
+    g_main_loop_quit (loop);
+    return FALSE;
+  }
+
+  if (g_io_channel_read_line (input, &str, NULL, NULL, NULL) !=
+      G_IO_STATUS_NORMAL) {
+    g_message ("Error reading from console");
+    goto done;
+  }
+
+  tok = g_strsplit (str, " ", 2);
+
+  if (g_str_equal (tok[0], "uri")) {
+    if (tok[1] == NULL || tok[2] != NULL) {
+      g_message ("Invalid input: Use 'uri scheme:///path'");
+      goto done;
+    }
+
+    g_object_set (server, "uri", g_strstrip (tok[1]), NULL);
+  }
+
+done:
+  g_free (str);
+  g_strfreev (tok);
+
+  return TRUE;
+}
 
 int main (int argc, char **argv)
 {
   GstSyncServer *server;
-  GMainLoop *loop;
   GError *err;
   GOptionContext *ctx;
+  GIOChannel *input;
   static GOptionEntry entries[] =
   {
     { "uri", 'u', 0, G_OPTION_ARG_STRING, &uri, "URI to send to clients",
@@ -74,11 +115,19 @@ int main (int argc, char **argv)
 
   gst_sync_server_start (server, NULL);
 
+  input = g_io_channel_unix_new (0);
+  g_io_channel_set_encoding (input, NULL, NULL);
+  g_io_channel_set_buffered (input, TRUE);
+
+  g_io_add_watch (input, G_IO_IN | G_IO_ERR, con_read_cb, server);
+
   g_main_loop_run (loop);
 
   g_object_unref (loop);
   gst_sync_server_stop (server);
   g_object_unref (server);
+
+  g_io_channel_unref (input);
 
   g_free (uri);
   g_free (addr);
