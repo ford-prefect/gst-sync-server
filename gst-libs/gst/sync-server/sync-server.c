@@ -239,6 +239,18 @@ gst_sync_server_set_property (GObject * object, guint property_id,
         g_free (self->uri);
 
       self->uri = g_value_dup_string (value);
+
+      if (self->pipeline) {
+        /* We need to update things */
+        gst_element_set_state (self->pipeline, GST_STATE_NULL);
+        gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline),
+            "uridecodebin::uri", self->uri, NULL);
+        if (gst_element_set_state (self->pipeline, GST_STATE_PLAYING) ==
+            GST_STATE_CHANGE_FAILURE) {
+          GST_ERROR_OBJECT (self, "Could not play new URI");
+        }
+      }
+
       break;
 
     default:
@@ -453,7 +465,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 
   g_object_get (self->clock_provider, "port", &self->clock_port, NULL);
 
-  uridecodebin = gst_element_factory_make ("uridecodebin", NULL);
+  uridecodebin = gst_element_factory_make ("uridecodebin", "uridecodebin");
   if (!uridecodebin) {
     GST_ERROR_OBJECT (self, "Could not create uridecodebin");
     /* FIXME: Set error */
