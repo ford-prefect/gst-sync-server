@@ -198,7 +198,7 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
   gint fd = GPOINTER_TO_INT (user_data);
   char c = 0;
 
-  if (write (fd, &c, sizeof (c)) < 0)
+  if (write (fd, &c, sizeof (c)) != sizeof (c))
     g_warning ("Failed to write data to fd");
 }
 
@@ -219,7 +219,7 @@ sync_info_updated (gint fd, GIOCondition cond, gpointer user_data)
     goto err;
   }
 
-  if (read (fd, &c, sizeof (c) <= 0)) {
+  if (read (fd, &c, sizeof (c)) != sizeof (c)) {
     g_message ("Failed to read data from fd");
     goto err;
   }
@@ -264,7 +264,7 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
 
   /* We get a notification every time sync-info changes, and dispatch that to
    * the client thread */
-  pipe_source = g_unix_fd_source_new (fds[0], G_IO_IN);
+  pipe_source = g_unix_fd_source_new (fds[0], G_IO_IN | G_IO_ERR);
   d.self = self;
   d.socket = socket;
   d.loop = loop;
