@@ -33,7 +33,7 @@ int main (int argc, char **argv)
   GstSyncClient *client;
   GMainLoop *loop;
   GstElement *playbin;
-  GError *err;
+  GError *err = NULL;
   GOptionContext *ctx;
   static GOptionEntry entries[] =
   {
@@ -66,9 +66,17 @@ int main (int argc, char **argv)
 
   loop = g_main_loop_new (NULL, FALSE);
 
+  if (!gst_sync_client_start (client, &err)) {
+    g_warning ("Could not start client: %s", err->message);
+    if (err)
+      g_error_free (err);
+    goto done;
+  }
+
   g_main_loop_run (loop);
 
-  g_object_unref (loop);
+done:
+  g_main_loop_unref (loop);
   g_object_unref (client);
 
   g_free (addr);

@@ -57,6 +57,7 @@ enum {
 #define DEFAULT_PORT 0
 
 static void read_sync_info (GstSyncTcpControlClient * self);
+static void gst_sync_tcp_control_client_stop (GstSyncTcpControlClient * self);
 
 static void
 gst_sync_tcp_control_client_set_property (GObject * object, guint property_id,
@@ -112,11 +113,7 @@ gst_sync_tcp_control_client_dispose (GObject * object)
 {
   GstSyncTcpControlClient *self = GST_SYNC_TCP_CONTROL_CLIENT (object);
 
-  if (self->conn) {
-    g_io_stream_close (G_IO_STREAM (self->conn), NULL, NULL);
-    g_object_unref (self->conn);
-    self->conn = NULL;
-  }
+  gst_sync_tcp_control_client_stop (self);
 
   g_free (self->addr);
   self->addr = NULL;
@@ -173,24 +170,20 @@ read_sync_info (GstSyncTcpControlClient * self)
       NULL, read_done_cb, self);
 }
 
-static void
-gst_sync_tcp_control_client_constructed (GObject * object)
+static gboolean
+gst_sync_tcp_control_client_start (GstSyncTcpControlClient * self,
+    GError ** err)
 {
-  /* We have address and port set, so we can start the socket service */
-  GstSyncTcpControlClient *self = GST_SYNC_TCP_CONTROL_CLIENT (object);
   GSocketClient *client;
-  GError *err = NULL;
-
-  G_OBJECT_CLASS (parent_class)->constructed (object);
+  gboolean ret = TRUE;
 
   client = g_socket_client_new ();
 
   self->conn =  g_socket_client_connect_to_host (client, self->addr,
-      self->port, NULL, &err);
+      self->port, NULL, err);
 
   if (!self->conn) {
-    g_warning ("Could not connect to server: %s", err->message);
-    g_error_free (err);
+    ret = FALSE;
     goto done;
   }
 
@@ -198,6 +191,17 @@ gst_sync_tcp_control_client_constructed (GObject * object)
 
 done:
   g_object_unref (client);
+  return ret;
+}
+
+static void
+gst_sync_tcp_control_client_stop (GstSyncTcpControlClient * self)
+{
+  if (self->conn) {
+    g_io_stream_close (G_IO_STREAM (self->conn), NULL, NULL);
+    g_object_unref (self->conn);
+    self->conn = NULL;
+  }
 }
 
 static void
@@ -208,21 +212,30 @@ gst_sync_tcp_control_client_class_init (GstSyncTcpControlClientClass * klass)
   object_class->dispose = gst_sync_tcp_control_client_dispose;
   object_class->set_property = gst_sync_tcp_control_client_set_property;
   object_class->get_property = gst_sync_tcp_control_client_get_property;
-  object_class->constructed = gst_sync_tcp_control_client_constructed;
 
   g_object_class_install_property (object_class, PROP_ADDRESS,
       g_param_spec_string ("address", "Address", "Address to listen on", NULL,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_PORT,
       g_param_spec_int ("port", "Port", "Port to listen on", 0, 65535,
         DEFAULT_PORT,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_SYNC_INFO,
       g_param_spec_boxed ("sync-info", "Sync info",
         "Sync parameters for clients to use", GST_TYPE_SYNC_SERVER_INFO,
         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  g_signal_new_class_handler ("start", GST_TYPE_SYNC_TCP_CONTROL_CLIENT,
+      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST, G_CALLBACK
+      (gst_sync_tcp_control_client_start), NULL, NULL, NULL, G_TYPE_BOOLEAN, 1,
+      G_TYPE_POINTER /* GError ** */, NULL);
+
+  g_signal_new_class_handler ("stop", GST_TYPE_SYNC_TCP_CONTROL_CLIENT,
+      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST, G_CALLBACK
+      (gst_sync_tcp_control_client_stop), NULL, NULL, NULL, G_TYPE_NONE, 0,
+      NULL);
 }
 
 static void

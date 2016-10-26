@@ -44,6 +44,10 @@ GType gst_sync_client_get_type ();
 GstSyncClient * gst_sync_client_new (const gchar * addr, gint port,
     GstPipeline * pipeline);
 
+gboolean gst_sync_client_start (GstSyncClient * self, GError ** error);
+
+void gst_sync_client_stop (GstSyncClient * self);
+
 G_END_DECLS
 
 #endif /* __GST_SYNC_CLIENT_H */

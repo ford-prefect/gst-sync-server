@@ -263,37 +263,6 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
 }
 
 static void
-sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
-{
-  GstSyncClient *self = GST_SYNC_CLIENT (user_data);
-  GstSyncServerInfo * info;
-
-  g_object_get (self->client, "sync-info", &info, NULL);
-
-  GST_INFO_OBJECT (self, "Got sync information, URI is :%s", self->info->uri);
-
-  update_sync_info (self, info /* transfers ownership of info */);
-}
-
-static void
-gst_sync_client_constructed (GObject * object)
-{
-  GstSyncClient *self = GST_SYNC_CLIENT (object);
-
-  G_OBJECT_CLASS (parent_class)->constructed (object);
-
-  self->client = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_CLIENT, "address",
-      self->control_addr, "port", self->control_port, NULL);
-
-  g_signal_connect (self->client, "notify::sync-info",
-      G_CALLBACK (sync_info_notify), self);
-
-  /* FIXME: the connect above is racy -- client might finish reading before we
-   * can hook up the notify. We need to separate out construction and start on
-   * the TCP client */
-}
-
-static void
 gst_sync_client_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
@@ -355,7 +324,6 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->dispose = GST_DEBUG_FUNCPTR (gst_sync_client_dispose);
-  object_class->constructed = GST_DEBUG_FUNCPTR (gst_sync_client_constructed);
   object_class->set_property =
     GST_DEBUG_FUNCPTR (gst_sync_client_set_property);
   object_class->get_property =
@@ -377,6 +345,19 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
         "The pipeline for playback (having the URI property)",
         GST_TYPE_PIPELINE,
         G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+}
+
+static void
+sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
+{
+  GstSyncClient *self = GST_SYNC_CLIENT (user_data);
+  GstSyncServerInfo * info;
+
+  g_object_get (self->client, "sync-info", &info, NULL);
+
+  GST_INFO_OBJECT (self, "Got sync information, URI is :%s", self->info->uri);
+
+  update_sync_info (self, info /* transfers ownership of info */);
 }
 
 static void
@@ -405,3 +386,24 @@ gst_sync_client_new (const gchar * control_addr, gint control_port,
         NULL);
 }
 
+gboolean
+gst_sync_client_start (GstSyncClient * self, GError ** err)
+{
+  gboolean ret;
+
+  self->client = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_CLIENT, "address",
+      self->control_addr, "port", self->control_port, NULL);
+
+  g_signal_connect (self->client, "notify::sync-info",
+      G_CALLBACK (sync_info_notify), self);
+
+  g_signal_emit_by_name (self->client, "start", err, &ret);
+
+  return ret;
+}
+
+void
+gst_sync_client_stop (GstSyncClient * self)
+{
+  g_signal_emit_by_name (self->client, "stop");
+}
