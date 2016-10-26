@@ -39,6 +39,8 @@ typedef struct _GstSyncClientClass GstSyncClientClass;
 #define GST_IS_SYNC_CLIENT_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_SYNC_CLIENT))
 
+GType gst_sync_client_get_type ();
+
 GstSyncClient * gst_sync_client_new (const gchar * addr, gint port,
     GstPipeline * pipeline);
 
