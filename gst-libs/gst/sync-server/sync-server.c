@@ -345,6 +345,8 @@ pad_added_cb (GstElement * bin, GstPad * pad, gpointer user_data)
   sinkpad = gst_element_get_static_pad (fakesink, "sink");
   g_assert (sinkpad != NULL);
 
+  g_object_set (fakesink, "sync", TRUE, "enable-last-sample", FALSE, NULL);
+
   gst_bin_add (GST_BIN (self->pipeline), fakesink);
 
   if (gst_pad_link (pad, sinkpad) != GST_PAD_LINK_OK)
