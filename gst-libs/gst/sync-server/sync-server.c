@@ -153,7 +153,7 @@ GType
 gst_sync_server_info_get_type ()
 {
   static GType type = 0;
-  
+
   if (g_once_init_enter (&type)) {
     GType tmp;
 
@@ -212,7 +212,7 @@ gst_sync_server_dispose (GObject * object)
   g_free (self->uri);
 
   g_hash_table_unref (self->fakesinks);
-  
+
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
@@ -378,7 +378,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
     case GST_MESSAGE_ERROR: {
       GError *err;
       gchar *debug;
-      
+
       gst_message_parse_error (message, &err, &debug);
       GST_ERROR_OBJECT (self, "Got error: %s (%s)", err->message, debug);
 
@@ -387,7 +387,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       break;
     }
 
-   case GST_MESSAGE_STATE_CHANGED: {
+    case GST_MESSAGE_STATE_CHANGED: {
       GstState new_state;
 
       gst_message_parse_state_changed (message, NULL, &new_state, NULL);
@@ -474,7 +474,8 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 
   g_object_set (uridecodebin, "uri", self->uri, NULL);
   g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb), self);
-  g_signal_connect (uridecodebin, "pad-removed", G_CALLBACK (pad_removed_cb), self);
+  g_signal_connect (uridecodebin, "pad-removed", G_CALLBACK (pad_removed_cb),
+      self);
   g_signal_connect (uridecodebin, "autoplug-continue",
       G_CALLBACK (autoplug_continue_cb), NULL);
 
@@ -483,7 +484,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 
   /* FIXME: set latency (and expose a property, propagate via sync info) */
   gst_pipeline_use_clock (GST_PIPELINE (self->pipeline), clock);
-  
+
   bus = gst_pipeline_get_bus (GST_PIPELINE (self->pipeline));
   gst_bus_add_watch (bus, bus_cb, self);
   gst_object_unref (bus);

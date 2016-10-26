@@ -182,29 +182,30 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
     }
 
     case GST_MESSAGE_ASYNC_DONE: {
-        /* This message is first examined synchronously in the sync-message signal.
-         * The rationale for doing this is that (a) we want the most accurate
-         * possible final seek position, and examining position asynchronously
-         * will not guarantee that, and (b) setting the base time as early as
-         * possible means we'll start rendering correctly synchronised buffers
-         * sooner */
-        GstClockTime pos, start;
+      /* This message is first examined synchronously in the sync-message
+       * signal.
+       * The rationale for doing this is that (a) we want the most accurate
+       * possible final seek position, and examining position asynchronously
+       * will not guarantee that, and (b) setting the base time as early as
+       * possible means we'll start rendering correctly synchronised buffers
+       * sooner */
+      GstClockTime pos, start;
 
-        if (g_atomic_int_get (&self->seek_state) != IN_SEEK)
-          break;
-
-        if (gst_element_query_position (GST_ELEMENT (self->pipeline),
-              GST_FORMAT_TIME, &pos)) {
-          GST_INFO_OBJECT (self, "Adding offset: %lu", pos);
-
-          g_mutex_lock (&self->info_lock);
-          set_base_time (self, self->info->base_time + pos);
-          g_mutex_unlock (&self->info_lock);
-        }
-
-        g_atomic_int_set (&self->seek_state, DONE_SEEK);
-
+      if (g_atomic_int_get (&self->seek_state) != IN_SEEK)
         break;
+
+      if (gst_element_query_position (GST_ELEMENT (self->pipeline),
+            GST_FORMAT_TIME, &pos)) {
+        GST_INFO_OBJECT (self, "Adding offset: %lu", pos);
+
+        g_mutex_lock (&self->info_lock);
+        set_base_time (self, self->info->base_time + pos);
+        g_mutex_unlock (&self->info_lock);
+      }
+
+      g_atomic_int_set (&self->seek_state, DONE_SEEK);
+
+      break;
     }
 
     default:
@@ -241,8 +242,8 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
 
     gst_object_unref (bus);
   } else {
-    /* Sync info changed, figure out what did. We do not expect the clock parameters
-     * to change */
+    /* Sync info changed, figure out what did. We do not expect the clock
+     * parameters to change */
 
     if (!g_str_equal (self->info->uri, info->uri) ||
         self->info->base_time != info->base_time) {
