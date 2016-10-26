@@ -208,6 +208,12 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       break;
     }
 
+    case GST_MESSAGE_EOS:
+      /* Just wait until we get further instructions from the server */
+      if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline))
+        gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
+      break;
+
     default:
       break;
   }

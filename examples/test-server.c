@@ -61,7 +61,10 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
       goto done;
     }
 
-    g_object_set (server, "uri", g_strstrip (tok[1]), NULL);
+    g_free (uri);
+    uri = g_strdup (g_strstrip (tok[1]));
+
+    g_object_set (server, "uri", uri, NULL);
   }
 
 done:
@@ -69,6 +72,13 @@ done:
   g_strfreev (tok);
 
   return TRUE;
+}
+
+static void
+eos_cb (GstSyncServer * server, gpointer user_data)
+{
+  /* Restart current media in a loop */
+  g_object_set (server, "uri", uri, NULL);
 }
 
 int main (int argc, char **argv)
@@ -114,6 +124,7 @@ int main (int argc, char **argv)
   loop = g_main_loop_new (NULL, FALSE);
 
   gst_sync_server_start (server, NULL);
+  g_signal_connect (server, "eos", G_CALLBACK (eos_cb), NULL);
 
   input = g_io_channel_unix_new (0);
   g_io_channel_set_encoding (input, NULL, NULL);

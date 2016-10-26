@@ -307,6 +307,9 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
   g_object_class_install_property (object_class, PROP_URI,
       g_param_spec_string ("uri", "URI", "URI to provide clients", NULL,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_signal_new_class_handler ("eos", GST_TYPE_SYNC_SERVER, G_SIGNAL_RUN_FIRST,
+      NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }
 
 static void
@@ -408,6 +411,17 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         info.base_time = gst_element_get_base_time (self->pipeline);
 
         g_object_set (self->server, "sync-info", &info, NULL);
+      }
+
+      break;
+    }
+
+    case GST_MESSAGE_EOS: {
+      /* Should we be connecting to about-to-finish instead (and thus forcing
+       * clients to give us a playbin) */
+      if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
+        gst_element_set_state (self->pipeline, GST_STATE_NULL);
+        g_signal_emit_by_name (self, "eos", NULL);
       }
 
       break;
