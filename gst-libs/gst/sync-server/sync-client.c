@@ -108,6 +108,35 @@ set_base_time (GstSyncClient * self, GstClockTime base_time)
   gst_element_set_base_time (GST_ELEMENT (self->pipeline), base_time);
 }
 
+static void
+set_uri (GstSyncClient * self, const gchar * uri)
+{
+  gboolean is_live;
+
+  g_object_set (GST_OBJECT (self->pipeline), "uri", uri, NULL);
+
+  switch (gst_element_set_state (GST_ELEMENT (self->pipeline),
+        GST_STATE_PAUSED)) {
+    case GST_STATE_CHANGE_FAILURE:
+      GST_WARNING_OBJECT (self, "Could not play uri: %s", uri);
+      break;
+
+    case GST_STATE_CHANGE_NO_PREROLL:
+      is_live = TRUE;
+      break;
+
+    default:
+      is_live = FALSE;
+      break;
+  }
+
+  g_atomic_int_set (&self->seek_state, is_live ? DONE_SEEK : NEED_SEEK);
+
+  /* We need to do PAUSED and PLAYING in separate steps so we don't have a race
+   * between us and reading seek_state in bus_cb() */
+  gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
+}
+
 static gboolean
 bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 {
@@ -134,10 +163,8 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       GST_INFO_OBJECT (self, "Clock is synchronised, starting playback");
 
       g_mutex_lock (&self->info_lock);
-      g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
+      set_uri (self, self->info->uri);
       g_mutex_unlock (&self->info_lock);
-
-      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
 
       break;
     }
@@ -146,37 +173,39 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       GstState old_state, new_state;
       GstClockTime now;
 
+      if (g_atomic_int_get (&self->seek_state) == DONE_SEEK ||
+          GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))
+        break;
+
       gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
 
-      if (g_atomic_int_get (&self->seek_state) == NEED_SEEK &&
-          (old_state == GST_STATE_PAUSED && new_state == GST_STATE_PLAYING) &&
-          GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
+      if (old_state != GST_STATE_PAUSED && new_state == GST_STATE_PLAYING)
+        break;
 
-        now = gst_clock_get_time (self->clock);
-        g_atomic_int_set (&self->seek_state, IN_SEEK);
+      now = gst_clock_get_time (self->clock);
+      g_atomic_int_set (&self->seek_state, IN_SEEK);
 
-        g_mutex_lock (&self->info_lock);
-        if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
-          /* Let's seek ahead to prevent excessive clipping */
-          /* FIXME: test with live pipelines */
-          GST_INFO_OBJECT (self, "Seeking: %lu",
-              now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
-          if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
-                GST_FORMAT_TIME,
-                GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
-                now - self->info->base_time + DEFAULT_SEEK_TOLERANCE)) {
-            GST_WARNING_OBJECT (self, "Could not perform seek");
+      g_mutex_lock (&self->info_lock);
+      if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
+        /* Let's seek ahead to prevent excessive clipping */
+        /* FIXME: test with live pipelines */
+        GST_INFO_OBJECT (self, "Seeking: %lu",
+            now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
+        if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
+              GST_FORMAT_TIME,
+              GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
+              now - self->info->base_time + DEFAULT_SEEK_TOLERANCE)) {
+          GST_WARNING_OBJECT (self, "Could not perform seek");
 
-            set_base_time (self, self->info->base_time);
-          }
-        } else {
-          /* For the seek case, the base time will be set after the seek */
           set_base_time (self, self->info->base_time);
-
-          g_atomic_int_set (&self->seek_state, DONE_SEEK);
         }
-        g_mutex_unlock (&self->info_lock);
+      } else {
+        /* For the seek case, the base time will be set after the seek */
+        set_base_time (self, self->info->base_time);
+
+        g_atomic_int_set (&self->seek_state, DONE_SEEK);
       }
+      g_mutex_unlock (&self->info_lock);
 
       break;
     }
@@ -259,10 +288,7 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
       gst_sync_server_info_free (self->info);
       self->info = info;
 
-      g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
-
-      g_atomic_int_set (&self->seek_state, NEED_SEEK);
-      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
+      set_uri (self, self->info->uri);
     }
   }
 
