@@ -50,6 +50,7 @@ struct _GstSyncServerInfo {
   guint clock_port;
   gchar *uri;
   guint64 base_time;
+  guint64 latency;
 };
 
 #define GST_TYPE_SYNC_SERVER_INFO (gst_sync_server_info_get_type ())

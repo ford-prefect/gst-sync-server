@@ -108,17 +108,19 @@ set_base_time (GstSyncClient * self, GstClockTime base_time)
   gst_element_set_base_time (GST_ELEMENT (self->pipeline), base_time);
 }
 
+/* Call with info_lock held */
 static void
-set_uri (GstSyncClient * self, const gchar * uri)
+update_pipeline (GstSyncClient * self)
 {
   gboolean is_live;
 
-  g_object_set (GST_OBJECT (self->pipeline), "uri", uri, NULL);
+  g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
+  gst_pipeline_set_latency (self->pipeline, self->info->latency);
 
   switch (gst_element_set_state (GST_ELEMENT (self->pipeline),
         GST_STATE_PAUSED)) {
     case GST_STATE_CHANGE_FAILURE:
-      GST_WARNING_OBJECT (self, "Could not play uri: %s", uri);
+      GST_WARNING_OBJECT (self, "Could not play uri: %s", self->info->uri);
       break;
 
     case GST_STATE_CHANGE_NO_PREROLL:
@@ -163,7 +165,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       GST_INFO_OBJECT (self, "Clock is synchronised, starting playback");
 
       g_mutex_lock (&self->info_lock);
-      set_uri (self, self->info->uri);
+      update_pipeline (self);
       g_mutex_unlock (&self->info_lock);
 
       break;
@@ -288,7 +290,7 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
       gst_sync_server_info_free (self->info);
       self->info = info;
 
-      set_uri (self, self->info->uri);
+      update_pipeline (self);
     }
   }
 

@@ -32,6 +32,7 @@ struct _GstSyncServer {
   gchar *control_addr;
   gint control_port;
   gint clock_port;
+  guint64 latency;
 
   gchar *uri;
   GHashTable *fakesinks;
@@ -55,10 +56,11 @@ enum {
   PROP_CONTROL_ADDRESS,
   PROP_CONTROL_PORT,
   PROP_URI,
+  PROP_LATENCY,
 };
 
 #define DEFAULT_PORT 0
-#define DEFAULT_LATENCY 200 * GST_MSECOND
+#define DEFAULT_LATENCY 300 * GST_MSECOND
 
 static gpointer
 _gst_sync_server_info_copy (gpointer from)
@@ -72,6 +74,7 @@ _gst_sync_server_info_copy (gpointer from)
   ret->clock_port = info->clock_port;
   ret->uri = g_strdup (info->uri);
   ret->base_time = info->base_time;
+  ret->latency = info->latency;
 
   return ret;
 }
@@ -117,6 +120,10 @@ gst_sync_server_info_serialize (gconstpointer boxed)
   json_object_set_member (object, "base-time", node);
 
   node = json_node_alloc ();
+  json_node_init_int (node, info->latency);
+  json_object_set_member (object, "latency", node);
+
+  node = json_node_alloc ();
   json_node_init_object (node, object);
   json_object_unref (object);
 
@@ -145,6 +152,7 @@ gst_sync_server_info_deserialize (JsonNode * node)
   info->uri =
     g_strdup (json_object_get_string_member (object, "uri"));
   info->base_time = json_object_get_int_member (object, "base-time");
+  info->latency = json_object_get_int_member (object, "latency");
 
   return info;
 }
@@ -216,6 +224,24 @@ gst_sync_server_dispose (GObject * object)
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
+static gboolean
+update_pipeline (GstSyncServer * self)
+{
+  gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline),
+      "uridecodebin::uri", self->uri, NULL);
+
+  gst_pipeline_set_latency (GST_PIPELINE (self->pipeline),
+      self->latency);
+
+  if (gst_element_set_state (self->pipeline, GST_STATE_PLAYING) ==
+      GST_STATE_CHANGE_FAILURE) {
+    GST_ERROR_OBJECT (self, "Could not play new URI");
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
 static void
 gst_sync_server_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
@@ -243,14 +269,14 @@ gst_sync_server_set_property (GObject * object, guint property_id,
       if (self->pipeline) {
         /* We need to update things */
         gst_element_set_state (self->pipeline, GST_STATE_NULL);
-        gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline),
-            "uridecodebin::uri", self->uri, NULL);
-        if (gst_element_set_state (self->pipeline, GST_STATE_PLAYING) ==
-            GST_STATE_CHANGE_FAILURE) {
-          GST_ERROR_OBJECT (self, "Could not play new URI");
-        }
+        update_pipeline (self);
       }
 
+      break;
+
+    case PROP_LATENCY:
+      self->latency = g_value_get_uint64 (value);
+      /* We don't distribute this immediately as it will cause a glitch */
       break;
 
     default:
@@ -276,6 +302,10 @@ gst_sync_server_get_property (GObject * object, guint property_id,
 
     case PROP_URI:
       g_value_set_string (value, self->uri);
+      break;
+
+    case PROP_LATENCY:
+      g_value_set_uint64 (value, self->latency);
       break;
 
     default:
@@ -308,6 +338,11 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
       g_param_spec_string ("uri", "URI", "URI to provide clients", NULL,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (object_class, PROP_LATENCY,
+      g_param_spec_uint64 ("latency", "Latency",
+        "Pipeline latency for clients", 0, G_MAXUINT64, DEFAULT_LATENCY,
+        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   g_signal_new_class_handler ("eos", GST_TYPE_SYNC_SERVER, G_SIGNAL_RUN_FIRST,
       NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }
@@ -319,6 +354,7 @@ gst_sync_server_init (GstSyncServer * self)
   self->control_port = DEFAULT_PORT;
 
   self->uri = NULL;
+  self->latency = DEFAULT_LATENCY;
   self->started = FALSE;
 
   self->server = NULL;
@@ -409,6 +445,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         g_object_get (self->clock_provider, "port", &info.clock_port, NULL);
         info.uri = g_strdup (self->uri);
         info.base_time = gst_element_get_base_time (self->pipeline);
+        info.latency = self->latency;
 
         g_object_set (self->server, "sync-info", &info, NULL);
       }
@@ -488,7 +525,6 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
     goto fail;
   }
 
-  g_object_set (uridecodebin, "uri", self->uri, NULL);
   g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb), self);
   g_signal_connect (uridecodebin, "pad-removed", G_CALLBACK (pad_removed_cb),
       self);
@@ -498,16 +534,13 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   self->pipeline = gst_pipeline_new ("sync-server");
   gst_bin_add (GST_BIN (self->pipeline), uridecodebin);
 
-  /* FIXME: set latency (and expose a property, propagate via sync info) */
   gst_pipeline_use_clock (GST_PIPELINE (self->pipeline), clock);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (self->pipeline));
   gst_bus_add_watch (bus, bus_cb, self);
   gst_object_unref (bus);
 
-  if (gst_element_set_state (self->pipeline, GST_STATE_PLAYING) ==
-      GST_STATE_CHANGE_FAILURE) {
-    GST_ERROR_OBJECT (self, "Could not play uri");
+  if (!update_pipeline (self)) {
     /* FIXME: Set error */
     goto fail;
   }

@@ -32,7 +32,8 @@
 static gchar *uri = NULL;
 static gchar *addr = NULL;
 static gint port = DEFAULT_PORT;
-  GMainLoop *loop;
+static guint64 latency = 0;
+static GMainLoop *loop;
 
 static gboolean
 con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
@@ -95,6 +96,8 @@ int main (int argc, char **argv)
       "ADDR" },
     { "port", 'p', 0, G_OPTION_ARG_INT, &port, "Port to listen on",
       "PORT" },
+    { "latency", 'l', 0, G_OPTION_ARG_INT64, &latency, "Pipeline latency",
+      "LATENCY" },
     { NULL }
   };
 
@@ -120,6 +123,8 @@ int main (int argc, char **argv)
   server = gst_sync_server_new (addr, port);
 
   g_object_set (server, "uri", uri, NULL);
+  if (latency)
+    g_object_set (server, "latency", latency, NULL);
 
   loop = g_main_loop_new (NULL, FALSE);
 
