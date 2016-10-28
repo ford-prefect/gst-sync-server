@@ -390,7 +390,7 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 
   g_object_get (self->client, "sync-info", &info, NULL);
 
-  GST_INFO_OBJECT (self, "Got sync information, URI is :%s", self->info->uri);
+  GST_INFO_OBJECT (self, "Got sync information, URI is :%s", info->uri);
 
   update_sync_info (self, info /* transfers ownership of info */);
 }
