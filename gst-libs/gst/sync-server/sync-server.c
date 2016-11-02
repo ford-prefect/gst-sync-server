@@ -219,7 +219,10 @@ gst_sync_server_dispose (GObject * object)
   g_free (self->control_addr);
   g_free (self->uri);
 
-  g_hash_table_unref (self->fakesinks);
+  if (self->fakesinks) {
+    g_hash_table_unref (self->fakesinks);
+    self->fakesinks = NULL;
+  }
 
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
