@@ -160,7 +160,11 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         break;
 
       /* FIXME: should have a timeout? */
-      gst_clock_wait_for_sync (self->clock, GST_CLOCK_TIME_NONE);
+      if (!gst_clock_wait_for_sync (self->clock, 10 * GST_SECOND)) {
+        GST_ERROR_OBJECT (self, "Could not synchronise clock");
+        self->synchronised = FALSE;
+        break;
+      }
 
       GST_INFO_OBJECT (self, "Clock is synchronised, starting playback");
 
