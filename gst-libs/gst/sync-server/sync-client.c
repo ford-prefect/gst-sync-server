@@ -180,13 +180,13 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       GstState old_state, new_state;
       GstClockTime now;
 
-      if (g_atomic_int_get (&self->seek_state) == DONE_SEEK ||
+      if (g_atomic_int_get (&self->seek_state) != NEED_SEEK ||
           GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))
         break;
 
       gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
 
-      if (old_state != GST_STATE_PAUSED && new_state == GST_STATE_PLAYING)
+      if (old_state != GST_STATE_PAUSED && new_state != GST_STATE_PLAYING)
         break;
 
       now = gst_clock_get_time (self->clock);
