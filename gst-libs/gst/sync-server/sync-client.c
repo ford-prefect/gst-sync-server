@@ -125,6 +125,7 @@ update_pipeline (GstSyncClient * self)
 
     case GST_STATE_CHANGE_NO_PREROLL:
       is_live = TRUE;
+      GST_DEBUG_OBJECT (self, "Detected live pipeline");
       break;
 
     default:
