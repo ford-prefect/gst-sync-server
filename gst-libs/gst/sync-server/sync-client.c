@@ -198,17 +198,16 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         GST_INFO_OBJECT (self, "Seeking: %lu",
             now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
         if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
-              GST_FORMAT_TIME,
-              GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
+              GST_FORMAT_TIME, GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
               now - self->info->base_time + DEFAULT_SEEK_TOLERANCE)) {
           GST_WARNING_OBJECT (self, "Could not perform seek");
 
           set_base_time (self, self->info->base_time);
+          g_atomic_int_set (&self->seek_state, DONE_SEEK);
         }
       } else {
         /* For the seek case, the base time will be set after the seek */
         set_base_time (self, self->info->base_time);
-
         g_atomic_int_set (&self->seek_state, DONE_SEEK);
       }
       g_mutex_unlock (&self->info_lock);
