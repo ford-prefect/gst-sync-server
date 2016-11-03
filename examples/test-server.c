@@ -54,6 +54,7 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
     goto done;
   }
 
+  g_strstrip (str);
   tok = g_strsplit (str, " ", 2);
 
   if (g_str_equal (tok[0], "uri")) {
@@ -63,7 +64,7 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
     }
 
     g_free (uri);
-    uri = g_strdup (g_strstrip (tok[1]));
+    uri = g_strdup (tok[1]);
 
     g_object_set (server, "uri", uri, NULL);
   }
@@ -79,6 +80,7 @@ static void
 eos_cb (GstSyncServer * server, gpointer user_data)
 {
   /* Restart current media in a loop */
+  g_print ("Got EOS, looping media\n");
   g_object_set (server, "uri", uri, NULL);
 }
 
