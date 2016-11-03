@@ -33,13 +33,19 @@ struct _GstSyncServer {
   gint control_port;
   gint clock_port;
   guint64 latency;
+  guint64 base_time; /* time of first transition to PLAYING */
+  guint64 paused_time; /* what to offset base time by */
+  guint64 last_pause_time;
 
   gchar *uri;
   GHashTable *fakesinks;
 
   gboolean started;
+  gboolean paused;
   GstElement *pipeline;
+
   GstNetTimeProvider *clock_provider;
+  GstClock *clock;
 
   GstSyncTcpControlServer *server;
 };
@@ -75,6 +81,8 @@ _gst_sync_server_info_copy (gpointer from)
   ret->uri = g_strdup (info->uri);
   ret->base_time = info->base_time;
   ret->latency = info->latency;
+  ret->paused = info->paused;
+  ret->paused_time = info->paused_time;
 
   return ret;
 }
@@ -124,6 +132,14 @@ gst_sync_server_info_serialize (gconstpointer boxed)
   json_object_set_member (object, "latency", node);
 
   node = json_node_alloc ();
+  json_node_init_boolean (node, info->paused);
+  json_object_set_member (object, "paused", node);
+
+  node = json_node_alloc ();
+  json_node_init_int (node, info->paused_time);
+  json_object_set_member (object, "paused-time", node);
+
+  node = json_node_alloc ();
   json_node_init_object (node, object);
   json_object_unref (object);
 
@@ -153,6 +169,8 @@ gst_sync_server_info_deserialize (JsonNode * node)
     g_strdup (json_object_get_string_member (object, "uri"));
   info->base_time = json_object_get_int_member (object, "base-time");
   info->latency = json_object_get_int_member (object, "latency");
+  info->paused = json_object_get_boolean_member (object, "paused");
+  info->paused_time = json_object_get_int_member (object, "paused-time");
 
   return info;
 }
@@ -224,20 +242,35 @@ gst_sync_server_dispose (GObject * object)
     self->fakesinks = NULL;
   }
 
+  if (self->clock)
+    gst_object_unref (self->clock);
+
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
 static gboolean
 update_pipeline (GstSyncServer * self)
 {
+  GstStateChangeReturn ret;
+
   gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline),
       "uridecodebin::uri", self->uri, NULL);
 
   gst_pipeline_set_latency (GST_PIPELINE (self->pipeline),
       self->latency);
 
-  if (gst_element_set_state (self->pipeline, GST_STATE_PLAYING) ==
-      GST_STATE_CHANGE_FAILURE) {
+  if (!self->paused) {
+    self->base_time = gst_clock_get_time (self->clock);
+    self->paused_time = 0;
+
+    GST_DEBUG_OBJECT (self, "Setting base time: %lu", self->base_time);
+    gst_element_set_base_time (self->pipeline, self->base_time);
+  }
+
+  ret = gst_element_set_state (self->pipeline,
+      self->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
+
+  if (ret == GST_STATE_CHANGE_FAILURE) {
     GST_ERROR_OBJECT (self, "Could not play new URI");
     return FALSE;
   }
@@ -359,6 +392,9 @@ gst_sync_server_init (GstSyncServer * self)
   self->uri = NULL;
   self->latency = DEFAULT_LATENCY;
   self->started = FALSE;
+  self->paused = FALSE;
+  self->paused_time = 0;
+  self->last_pause_time = GST_CLOCK_TIME_NONE;
 
   self->server = NULL;
 
@@ -413,6 +449,25 @@ pad_removed_cb (GstElement * bin, GstPad * pad, gpointer user_data)
   gst_bin_remove (GST_BIN (self->pipeline), sink);
 }
 
+static void
+fill_sync_info (GstSyncServer * self, GstSyncServerInfo * info)
+{
+  /* FIXME: Deal with pausing on live streams */
+  info->version = 1;
+
+  info->clock_addr = g_strdup (self->control_addr);
+  g_object_get (self->clock_provider, "port", &info->clock_port, NULL);
+
+  info->uri = g_strdup (self->uri);
+
+  info->base_time = self->base_time;
+
+  info->latency = self->latency;
+
+  info->paused = self->paused;
+  info->paused_time = self->paused_time;
+}
+
 static gboolean
 bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 {
@@ -436,19 +491,15 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       gst_message_parse_state_changed (message, NULL, &new_state, NULL);
 
-      if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline) &&
+      if (GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))
+       break;
+
+      if ((self->paused && new_state == GST_STATE_PAUSED) ||
           new_state == GST_STATE_PLAYING) {
         GstSyncServerInfo info;
 
-        GST_INFO_OBJECT (self, "Pipeline is now live");
         /* FIXME: Implement a "ready" signal */
-
-        info.version = 1;
-        info.clock_addr = g_strdup (self->control_addr);
-        g_object_get (self->clock_provider, "port", &info.clock_port, NULL);
-        info.uri = g_strdup (self->uri);
-        info.base_time = gst_element_get_base_time (self->pipeline);
-        info.latency = self->latency;
+        fill_sync_info (self, &info);
 
         g_object_set (self->server, "sync-info", &info, NULL);
       }
@@ -495,10 +546,9 @@ gboolean
 gst_sync_server_start (GstSyncServer * self, GError ** error)
 {
   GstElement *uridecodebin;
-  GstClock *clock;
   GstBus *bus;
 
-  clock = gst_system_clock_obtain ();
+  self->clock = gst_system_clock_obtain ();
 
   if (!self->uri) {
     GST_ERROR_OBJECT (self, "Need a URI before we can start");
@@ -511,7 +561,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
       "address", self->control_addr, "port", self->control_port, NULL);
 
   self->clock_provider =
-    gst_net_time_provider_new (clock, self->control_addr, 0);
+    gst_net_time_provider_new (self->clock, self->control_addr, 0);
 
   if (self->clock_provider == NULL) {
     GST_ERROR_OBJECT (self, "Could not create net time provider");
@@ -537,7 +587,8 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   self->pipeline = gst_pipeline_new ("sync-server");
   gst_bin_add (GST_BIN (self->pipeline), uridecodebin);
 
-  gst_pipeline_use_clock (GST_PIPELINE (self->pipeline), clock);
+  gst_element_set_start_time (self->pipeline, GST_CLOCK_TIME_NONE);
+  gst_pipeline_use_clock (GST_PIPELINE (self->pipeline), self->clock);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (self->pipeline));
   gst_bus_add_watch (bus, bus_cb, self);
@@ -548,14 +599,44 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
     goto fail;
   }
 
-  gst_object_unref (clock);
   return TRUE;
 
 fail:
   gst_sync_server_cleanup (self);
-  gst_object_unref (clock);
 
   return FALSE;
+}
+
+void
+gst_sync_server_set_paused (GstSyncServer * self, gboolean paused)
+{
+  GstStateChangeReturn ret;
+
+  if (self->paused == paused)
+    return;
+
+  self->paused = paused;
+
+  if (self->paused)
+    self->last_pause_time = gst_clock_get_time (self->clock);
+
+  if (!paused) {
+    self->paused_time +=
+      gst_clock_get_time (self->clock) - self->last_pause_time;
+    self->last_pause_time = GST_CLOCK_TIME_NONE;
+    GST_DEBUG_OBJECT (self, "Total paused time: %lu", self->paused_time);
+
+    GST_DEBUG_OBJECT (self, "Updating base time: %lu",
+        self->base_time + self->paused_time);
+    gst_element_set_base_time (self->pipeline,
+        self->base_time + self->paused_time);
+  }
+
+  ret = gst_element_set_state (self->pipeline,
+      self->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
+
+  if (ret == GST_STATE_CHANGE_FAILURE)
+    GST_ERROR_OBJECT (self, "Could not change paused state");
 }
 
 void

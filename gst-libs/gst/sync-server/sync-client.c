@@ -48,6 +48,7 @@ struct _GstSyncClient {
 
   /* See bus_cb() for why this needs to be atomic */
   volatile int seek_state;
+  GstClockTime seek_offset;
 };
 
 struct _GstSyncClientClass {
@@ -101,11 +102,15 @@ gst_sync_client_dispose (GObject * object)
 }
 
 static void
-set_base_time (GstSyncClient * self, GstClockTime base_time)
+set_base_time (GstSyncClient * self)
 {
   gst_element_set_start_time (GST_ELEMENT (self->pipeline),
       GST_CLOCK_TIME_NONE);
-  gst_element_set_base_time (GST_ELEMENT (self->pipeline), base_time);
+
+  GST_DEBUG_OBJECT (self, "Updating base time to: %lu",
+      self->info->base_time + self->info->paused_time + self->seek_offset);
+  gst_element_set_base_time (GST_ELEMENT (self->pipeline),
+      self->info->base_time + self->info->paused_time + self->seek_offset);
 }
 
 /* Call with info_lock held */
@@ -133,11 +138,13 @@ update_pipeline (GstSyncClient * self)
       break;
   }
 
+  self->seek_offset = 0;
   g_atomic_int_set (&self->seek_state, is_live ? DONE_SEEK : NEED_SEEK);
 
   /* We need to do PAUSED and PLAYING in separate steps so we don't have a race
    * between us and reading seek_state in bus_cb() */
-  gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
+  if (!self->info->paused)
+    gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
 }
 
 static gboolean
@@ -178,7 +185,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
     case GST_MESSAGE_STATE_CHANGED: {
       GstState old_state, new_state;
-      GstClockTime now;
+      GstClockTime cur_pos, now;
 
       if (g_atomic_int_get (&self->seek_state) != NEED_SEEK ||
           GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))
@@ -193,24 +200,26 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       g_atomic_int_set (&self->seek_state, IN_SEEK);
 
       g_mutex_lock (&self->info_lock);
-      if (now - self->info->base_time > DEFAULT_SEEK_TOLERANCE) {
+
+      cur_pos = now - self->info->base_time - self->info->paused_time;
+      if (cur_pos > DEFAULT_SEEK_TOLERANCE) {
         /* Let's seek ahead to prevent excessive clipping */
-        /* FIXME: test with live pipelines */
-        GST_INFO_OBJECT (self, "Seeking: %lu",
-            now - self->info->base_time + DEFAULT_SEEK_TOLERANCE);
+        GST_INFO_OBJECT (self, "Seeking: %lu", cur_pos);
+
         if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
               GST_FORMAT_TIME, GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
-              now - self->info->base_time + DEFAULT_SEEK_TOLERANCE)) {
+              cur_pos)) {
           GST_WARNING_OBJECT (self, "Could not perform seek");
 
-          set_base_time (self, self->info->base_time);
+          set_base_time (self);
           g_atomic_int_set (&self->seek_state, DONE_SEEK);
         }
       } else {
         /* For the seek case, the base time will be set after the seek */
-        set_base_time (self, self->info->base_time);
+        set_base_time (self);
         g_atomic_int_set (&self->seek_state, DONE_SEEK);
       }
+
       g_mutex_unlock (&self->info_lock);
 
       break;
@@ -224,17 +233,15 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
        * will not guarantee that, and (b) setting the base time as early as
        * possible means we'll start rendering correctly synchronised buffers
        * sooner */
-      GstClockTime pos, start;
-
       if (g_atomic_int_get (&self->seek_state) != IN_SEEK)
         break;
 
       if (gst_element_query_position (GST_ELEMENT (self->pipeline),
-            GST_FORMAT_TIME, &pos)) {
-        GST_INFO_OBJECT (self, "Adding offset: %lu", pos);
+            GST_FORMAT_TIME, &self->seek_offset)) {
+        GST_INFO_OBJECT (self, "Adding offset: %lu", self->seek_offset);
 
         g_mutex_lock (&self->info_lock);
-        set_base_time (self, self->info->base_time + pos);
+        set_base_time (self);
         g_mutex_unlock (&self->info_lock);
       }
 
@@ -284,18 +291,32 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
     gst_object_unref (bus);
   } else {
     /* Sync info changed, figure out what did. We do not expect the clock
-     * parameters to change */
+     * parameters or latency to change */
+    GstSyncServerInfo *old_info;
 
-    if (!g_str_equal (self->info->uri, info->uri) ||
-        self->info->base_time != info->base_time) {
-      /* URI or base time changed, just reset pipeline completely */
+    old_info = self->info;
+    self->info = info;
+
+    if (!g_str_equal (old_info->uri, info->uri)) {
+      /* URI changed, just reset pipeline completely */
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
+      update_pipeline (self);
 
-      gst_sync_server_info_free (self->info);
-      self->info = info;
+    } else if (old_info->paused != info->paused) {
+      /* Paused or unpaused */
+      if (!self->info->paused)
+        set_base_time (self);
 
+      gst_element_set_state (GST_ELEMENT (self->pipeline),
+          self->info->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
+
+    } else if (old_info->base_time != info->base_time) {
+      /* Base time changed, just reset pipeline completely */
+      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
       update_pipeline (self);
     }
+
+    gst_sync_server_info_free (old_info);
   }
 
   g_mutex_unlock (&self->info_lock);
@@ -410,6 +431,8 @@ gst_sync_client_init (GstSyncClient * self)
 
   self->pipeline = NULL;
   self->synchronised = FALSE;
+
+  self->seek_offset = 0;
   g_atomic_int_set (&self->seek_state, NEED_SEEK);
 }
 

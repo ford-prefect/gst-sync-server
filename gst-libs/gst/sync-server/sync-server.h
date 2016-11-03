@@ -51,6 +51,8 @@ struct _GstSyncServerInfo {
   gchar *uri;
   guint64 base_time;
   guint64 latency;
+  gboolean paused;
+  guint64 paused_time;
 };
 
 #define GST_TYPE_SYNC_SERVER_INFO (gst_sync_server_info_get_type ())
@@ -63,6 +65,8 @@ GType gst_sync_server_get_type ();
 GstSyncServer * gst_sync_server_new (const gchar * addr, gint port);
 
 gboolean gst_sync_server_start (GstSyncServer * self, GError ** error);
+
+void gst_sync_server_set_paused (GstSyncServer * self, gboolean paused);
 
 void gst_sync_server_stop (GstSyncServer * self);
 

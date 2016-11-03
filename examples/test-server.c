@@ -67,6 +67,12 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
     uri = g_strdup (tok[1]);
 
     g_object_set (server, "uri", uri, NULL);
+
+  } else if (g_str_equal (tok[0], "pause")) {
+    gst_sync_server_set_paused (server, TRUE);
+
+  } else if (g_str_equal (tok[0], "unpause")) {
+    gst_sync_server_set_paused (server, FALSE);
   }
 
 done:
