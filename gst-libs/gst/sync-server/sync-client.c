@@ -415,7 +415,13 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 
   g_object_get (self->client, "sync-info", &info, NULL);
 
-  GST_INFO_OBJECT (self, "Got sync information, URI is :%s", info->uri);
+  GST_DEBUG_OBJECT (self, "Got sync information:");
+  GST_DEBUG_OBJECT (self, "\tClk: %s:%u", info->clock_addr, info->clock_port);
+  GST_DEBUG_OBJECT (self, "\tURI: %s", info->uri);
+  GST_DEBUG_OBJECT (self, "\tBase time: %lu", info->base_time);
+  GST_DEBUG_OBJECT (self, "\tLatency: %lu", info->latency);
+  GST_DEBUG_OBJECT (self, "\tPaused: %u", info->paused);
+  GST_DEBUG_OBJECT (self, "\tPaused time: %lu", info->paused_time);
 
   update_sync_info (self, info /* transfers ownership of info */);
 }
