@@ -58,6 +58,9 @@ struct _GstSyncClientClass {
 #define gst_sync_client_parent_class parent_class
 G_DEFINE_TYPE (GstSyncClient, gst_sync_client, G_TYPE_OBJECT);
 
+GST_DEBUG_CATEGORY_STATIC (sync_client_debug);
+#define GST_CAT_DEFAULT sync_client_debug
+
 enum {
   PROP_0,
   PROP_CONTROL_ADDRESS,
@@ -405,6 +408,8 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
         "The pipeline for playback (having the URI property)",
         GST_TYPE_PIPELINE,
         G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  GST_DEBUG_CATEGORY_INIT (sync_client_debug, "syncclient", 0, "GstSyncClient");
 }
 
 static void

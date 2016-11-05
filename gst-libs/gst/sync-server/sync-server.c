@@ -57,6 +57,9 @@ struct _GstSyncServerClass {
 #define gst_sync_server_parent_class parent_class
 G_DEFINE_TYPE (GstSyncServer, gst_sync_server, G_TYPE_OBJECT);
 
+GST_DEBUG_CATEGORY_STATIC (sync_server_debug);
+#define GST_CAT_DEFAULT sync_server_debug
+
 enum {
   PROP_0,
   PROP_CONTROL_ADDRESS,
@@ -381,6 +384,8 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
 
   g_signal_new_class_handler ("eos", GST_TYPE_SYNC_SERVER, G_SIGNAL_RUN_FIRST,
       NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
+
+  GST_DEBUG_CATEGORY_INIT (sync_server_debug, "syncserver", 0, "GstSyncServer");
 }
 
 static void
