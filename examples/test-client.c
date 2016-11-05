@@ -32,7 +32,6 @@ int main (int argc, char **argv)
 {
   GstSyncClient *client;
   GMainLoop *loop;
-  GstElement *playbin;
   GError *err = NULL;
   GOptionContext *ctx;
   static GOptionEntry entries[] =
@@ -60,9 +59,7 @@ int main (int argc, char **argv)
 
   gst_init (&argc, &argv);
 
-  playbin = gst_element_factory_make ("playbin", NULL);
-  client =
-    gst_sync_client_new (addr, port, GST_PIPELINE (playbin));
+  client = gst_sync_client_new (addr, port);
 
   loop = g_main_loop_new (NULL, FALSE);
 

@@ -343,13 +343,6 @@ gst_sync_client_set_property (GObject * object, guint property_id,
       self->control_port = g_value_get_int (value);
       break;
 
-    case PROP_PIPELINE:
-      if (self->pipeline)
-        gst_object_unref (self->pipeline);
-
-      self->pipeline = GST_PIPELINE (g_value_dup_object (value));
-      break;
-
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -407,7 +400,7 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
       g_param_spec_object ("pipeline", "Pipeline",
         "The pipeline for playback (having the URI property)",
         GST_TYPE_PIPELINE,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   GST_DEBUG_CATEGORY_INIT (sync_client_debug, "syncclient", 0, "GstSyncClient");
 }
@@ -440,7 +433,10 @@ gst_sync_client_init (GstSyncClient * self)
   self->info = NULL;
   g_mutex_init (&self->info_lock);
 
-  self->pipeline = NULL;
+  self->pipeline = GST_PIPELINE (gst_element_factory_make ("playbin", NULL));
+  if (!self->pipeline)
+    GST_ERROR_OBJECT (self, "Could not instantiate playbin");
+
   self->synchronised = FALSE;
 
   self->seek_offset = 0;
@@ -448,14 +444,12 @@ gst_sync_client_init (GstSyncClient * self)
 }
 
 GstSyncClient *
-gst_sync_client_new (const gchar * control_addr, gint control_port,
-    GstPipeline * pipeline)
+gst_sync_client_new (const gchar * control_addr, gint control_port)
 {
   return
     g_object_new (GST_TYPE_SYNC_CLIENT,
         "control-address", control_addr,
         "control-port", control_port,
-        "pipeline", pipeline,
         NULL);
 }
 

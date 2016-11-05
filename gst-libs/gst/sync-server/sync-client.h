@@ -41,8 +41,7 @@ typedef struct _GstSyncClientClass GstSyncClientClass;
 
 GType gst_sync_client_get_type ();
 
-GstSyncClient * gst_sync_client_new (const gchar * addr, gint port,
-    GstPipeline * pipeline);
+GstSyncClient * gst_sync_client_new (const gchar * addr, gint port);
 
 gboolean gst_sync_client_start (GstSyncClient * self, GError ** error);
 
