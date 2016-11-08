@@ -24,23 +24,11 @@
 #include <glib.h>
 
 G_BEGIN_DECLS
-typedef struct _GstSyncControlTcpServer GstSyncControlTcpServer;
-typedef struct _GstSyncControlTcpServerClass GstSyncControlTcpServerClass;
 
 #define GST_TYPE_SYNC_CONTROL_TCP_SERVER \
   (gst_sync_control_tcp_server_get_type ())
-#define GST_SYNC_CONTROL_TCP_SERVER(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_SYNC_CONTROL_TCP_SERVER, \
-                               GstSyncControlTcpServer))
-#define GST_SYNC_CONTROL_TCP_SERVER_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST ((klass), GST_TYPE_SYNC_CONTROL_TCP_SERVER, \
-                            GstSyncControlTcpServerClass))
-#define GST_IS_SYNC_CONTROL_TCP_SERVER(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), GST_TYPE_SYNC_CONTROL_TCP_SERVER))
-#define GST_IS_SYNC_CONTROL_TCP_SERVER_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_SYNC_CONTROL_TCP_SERVER))
-
-GType gst_sync_control_tcp_server_get_type ();
+G_DECLARE_FINAL_TYPE (GstSyncControlTcpServer, gst_sync_control_tcp_server,
+    GST, SYNC_CONTROL_TCP_SERVER, GObject);
 
 /* API */
 

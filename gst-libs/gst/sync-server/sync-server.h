@@ -25,18 +25,9 @@
 
 G_BEGIN_DECLS
 
-typedef struct _GstSyncServer GstSyncServer;
-typedef struct _GstSyncServerClass GstSyncServerClass;
-
 #define GST_TYPE_SYNC_SERVER (gst_sync_server_get_type ())
-#define GST_SYNC_SERVER(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_SYNC_SERVER, GstSyncServer))
-#define GST_SYNC_SERVER_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST ((klass), GST_TYPE_SYNC_SERVER, GstSyncServerClass))
-#define GST_IS_SYNC_SERVER(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), GST_TYPE_SYNC_SERVER))
-#define GST_IS_SYNC_SERVER_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_SYNC_SERVER))
+G_DECLARE_FINAL_TYPE (GstSyncServer, gst_sync_server, GST, SYNC_SERVER,
+    GObject);
 
 /* Server messages */
 
@@ -58,8 +49,6 @@ GType gst_sync_server_info_get_type ();
 void gst_sync_server_info_free (GstSyncServerInfo *info);
 
 /* API */
-GType gst_sync_server_get_type ();
-
 GstSyncServer * gst_sync_server_new (const gchar * addr, gint port);
 
 gboolean gst_sync_server_start (GstSyncServer * self, GError ** error);

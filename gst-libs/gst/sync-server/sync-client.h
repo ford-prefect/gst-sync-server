@@ -26,20 +26,9 @@
 
 G_BEGIN_DECLS
 
-typedef struct _GstSyncClient GstSyncClient;
-typedef struct _GstSyncClientClass GstSyncClientClass;
-
 #define GST_TYPE_SYNC_CLIENT (gst_sync_client_get_type ())
-#define GST_SYNC_CLIENT(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_SYNC_CLIENT, GstSyncClient))
-#define GST_SYNC_CLIENT_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST ((klass), GST_TYPE_SYNC_CLIENT, GstSyncClientClass))
-#define GST_IS_SYNC_CLIENT(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), GST_TYPE_SYNC_CLIENT))
-#define GST_IS_SYNC_CLIENT_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_SYNC_CLIENT))
-
-GType gst_sync_client_get_type ();
+G_DECLARE_FINAL_TYPE (GstSyncClient, gst_sync_client, GST, SYNC_CLIENT,
+    GObject);
 
 GstSyncClient * gst_sync_client_new (const gchar * addr, gint port);
 
