@@ -2,9 +2,9 @@ lib_LTLIBRARIES = libgstsyncserver-@GST_API_VERSION@.la
 
 libgstsyncserver_@GST_API_VERSION@_la_SOURCES = \
         sync-server.c                           \
-        sync-tcp-control-server.c               \
         sync-client.c                           \
-        sync-tcp-control-client.c
+        sync-control-tcp-server.c               \
+        sync-control-tcp-client.c
 
 libgstsyncserver_@GST_API_VERSION@_la_CFLAGS =  \
         -I$(top_srcdir)/gst-libs                \
@@ -21,6 +21,6 @@ libgstsyncserver_@GST_API_VERSION@_la_LIBADD =  \
 libgstsyncserver_@GST_API_VERSION@includedir = $(includedir)/gstreamer-@GST_API_VERSION@/gst/sync-server
 libgstsyncserver_@GST_API_VERSION@include_HEADERS = \
         sync-server.h                           \
-        sync-tcp-control-server.h               \
         sync-client.h                           \
-        sync-tcp-control-client.h
+        sync-control-tcp-server.h               \
+        sync-control-tcp-client.h

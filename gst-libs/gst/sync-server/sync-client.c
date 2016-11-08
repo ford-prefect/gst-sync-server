@@ -23,7 +23,7 @@
 
 #include "sync-server.h"
 #include "sync-client.h"
-#include "sync-tcp-control-client.h"
+#include "sync-control-tcp-client.h"
 
 enum {
   NEED_SEEK,
@@ -43,7 +43,7 @@ struct _GstSyncClient {
   GstPipeline *pipeline;
   GstClock *clock;
 
-  GstSyncTcpControlClient *client;
+  GstSyncControlTcpClient *client;
   gboolean synchronised;
 
   /* See bus_cb() for why this needs to be atomic */
@@ -458,7 +458,7 @@ gst_sync_client_start (GstSyncClient * self, GError ** err)
 {
   gboolean ret;
 
-  self->client = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_CLIENT, "address",
+  self->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, "address",
       self->control_addr, "port", self->control_port, NULL);
 
   g_signal_connect (self->client, "notify::sync-info",

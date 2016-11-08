@@ -30,9 +30,9 @@
 #include <glib-unix.h>
 
 #include "sync-server.h"
-#include "sync-tcp-control-server.h"
+#include "sync-control-tcp-server.h"
 
-struct _GstSyncTcpControlServer {
+struct _GstSyncControlTcpServer {
   GObject parent;
 
   gchar *addr;
@@ -44,12 +44,12 @@ struct _GstSyncTcpControlServer {
   GSocketService *server;
 };
 
-struct _GstSyncTcpControlServerClass {
+struct _GstSyncControlTcpServerClass {
   GObjectClass parent;
 };
 
-#define gst_sync_tcp_control_server_parent_class parent_class
-G_DEFINE_TYPE (GstSyncTcpControlServer, gst_sync_tcp_control_server,
+#define gst_sync_control_tcp_server_parent_class parent_class
+G_DEFINE_TYPE (GstSyncControlTcpServer, gst_sync_control_tcp_server,
     G_TYPE_OBJECT);
 
 enum {
@@ -62,10 +62,10 @@ enum {
 #define DEFAULT_PORT 0
 
 static void
-gst_sync_tcp_control_server_set_property (GObject * object, guint property_id,
+gst_sync_control_tcp_server_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
-  GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (object);
+  GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (object);
 
   switch (property_id) {
     case PROP_ADDRESS:
@@ -96,10 +96,10 @@ gst_sync_tcp_control_server_set_property (GObject * object, guint property_id,
 }
 
 static void
-gst_sync_tcp_control_server_get_property (GObject * object, guint property_id,
+gst_sync_control_tcp_server_get_property (GObject * object, guint property_id,
     GValue * value, GParamSpec * pspec)
 {
-  GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (object);
+  GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (object);
 
   switch (property_id) {
     case PROP_ADDRESS:
@@ -123,9 +123,9 @@ gst_sync_tcp_control_server_get_property (GObject * object, guint property_id,
 }
 
 static void
-gst_sync_tcp_control_server_dispose (GObject * object)
+gst_sync_control_tcp_server_dispose (GObject * object)
 {
-  GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (object);
+  GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (object);
 
   if (self->server) {
     g_socket_service_stop (self->server);
@@ -147,7 +147,7 @@ gst_sync_tcp_control_server_dispose (GObject * object)
 }
 
 static gboolean
-send_sync_info (GstSyncTcpControlServer * self, GSocket * socket)
+send_sync_info (GstSyncControlTcpServer * self, GSocket * socket)
 {
   JsonNode *node;
   gchar *out;
@@ -203,7 +203,7 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 }
 
 struct SyncInfoData {
-  GstSyncTcpControlServer *self;
+  GstSyncControlTcpServer *self;
   GSocket *socket;
   GMainLoop *loop;
 };
@@ -237,7 +237,7 @@ static gboolean
 run_cb (GThreadedSocketService * service, GSocketConnection * connection,
     GObject * source_object G_GNUC_UNUSED, gpointer user_data)
 {
-  GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (user_data);
+  GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (user_data);
   GSocket *socket;
   GSource *err_source, *pipe_source;
   GMainLoop *loop;
@@ -290,10 +290,10 @@ done:
 }
 
 static void
-gst_sync_tcp_control_server_constructed (GObject * object)
+gst_sync_control_tcp_server_constructed (GObject * object)
 {
   /* We have address and port set, so we can start the socket service */
-  GstSyncTcpControlServer *self = GST_SYNC_TCP_CONTROL_SERVER (object);
+  GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (object);
   GSocketAddress *sockaddr;
   GError *err = NULL;
 
@@ -315,14 +315,14 @@ gst_sync_tcp_control_server_constructed (GObject * object)
 }
 
 static void
-gst_sync_tcp_control_server_class_init (GstSyncTcpControlServerClass * klass)
+gst_sync_control_tcp_server_class_init (GstSyncControlTcpServerClass * klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-  object_class->dispose = gst_sync_tcp_control_server_dispose;
-  object_class->set_property = gst_sync_tcp_control_server_set_property;
-  object_class->get_property = gst_sync_tcp_control_server_get_property;
-  object_class->constructed = gst_sync_tcp_control_server_constructed;
+  object_class->dispose = gst_sync_control_tcp_server_dispose;
+  object_class->set_property = gst_sync_control_tcp_server_set_property;
+  object_class->get_property = gst_sync_control_tcp_server_get_property;
+  object_class->constructed = gst_sync_control_tcp_server_constructed;
 
   g_object_class_install_property (object_class, PROP_ADDRESS,
       g_param_spec_string ("address", "Address", "Address to listen on", NULL,
@@ -340,7 +340,7 @@ gst_sync_tcp_control_server_class_init (GstSyncTcpControlServerClass * klass)
 }
 
 static void
-gst_sync_tcp_control_server_init (GstSyncTcpControlServer *self)
+gst_sync_control_tcp_server_init (GstSyncControlTcpServer *self)
 {
   self->addr = NULL;
   self->port = 0;

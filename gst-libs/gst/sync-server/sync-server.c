@@ -24,7 +24,7 @@
 #include <glib-unix.h>
 
 #include "sync-server.h"
-#include "sync-tcp-control-server.h"
+#include "sync-control-tcp-server.h"
 
 struct _GstSyncServer {
   GObject parent;
@@ -47,7 +47,7 @@ struct _GstSyncServer {
   GstNetTimeProvider *clock_provider;
   GstClock *clock;
 
-  GstSyncTcpControlServer *server;
+  GstSyncControlTcpServer *server;
 };
 
 struct _GstSyncServerClass {
@@ -562,7 +562,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   }
 
   /* FIXME: make the transport configurable */
-  self->server = g_object_new (GST_TYPE_SYNC_TCP_CONTROL_SERVER,
+  self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER,
       "address", self->control_addr, "port", self->control_port, NULL);
 
   self->clock_provider =

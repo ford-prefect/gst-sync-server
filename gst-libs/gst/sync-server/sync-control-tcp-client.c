@@ -26,9 +26,9 @@
 
 #include "sync-server.h"
 #include "sync-client.h"
-#include "sync-tcp-control-client.h"
+#include "sync-control-tcp-client.h"
 
-struct _GstSyncTcpControlClient {
+struct _GstSyncControlTcpClient {
   GObject parent;
 
   gchar *addr;
@@ -39,12 +39,12 @@ struct _GstSyncTcpControlClient {
   gchar buf[4096];
 };
 
-struct _GstSyncTcpControlClientClass {
+struct _GstSyncControlTcpClientClass {
   GObjectClass parent;
 };
 
-#define gst_sync_tcp_control_client_parent_class parent_class
-G_DEFINE_TYPE (GstSyncTcpControlClient, gst_sync_tcp_control_client,
+#define gst_sync_control_tcp_client_parent_class parent_class
+G_DEFINE_TYPE (GstSyncControlTcpClient, gst_sync_control_tcp_client,
     G_TYPE_OBJECT);
 
 enum {
@@ -56,14 +56,14 @@ enum {
 
 #define DEFAULT_PORT 0
 
-static void read_sync_info (GstSyncTcpControlClient * self);
-static void gst_sync_tcp_control_client_stop (GstSyncTcpControlClient * self);
+static void read_sync_info (GstSyncControlTcpClient * self);
+static void gst_sync_control_tcp_client_stop (GstSyncControlTcpClient * self);
 
 static void
-gst_sync_tcp_control_client_set_property (GObject * object, guint property_id,
+gst_sync_control_tcp_client_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
-  GstSyncTcpControlClient *self = GST_SYNC_TCP_CONTROL_CLIENT (object);
+  GstSyncControlTcpClient *self = GST_SYNC_CONTROL_TCP_CLIENT (object);
 
   switch (property_id) {
     case PROP_ADDRESS:
@@ -84,10 +84,10 @@ gst_sync_tcp_control_client_set_property (GObject * object, guint property_id,
 }
 
 static void
-gst_sync_tcp_control_client_get_property (GObject * object, guint property_id,
+gst_sync_control_tcp_client_get_property (GObject * object, guint property_id,
     GValue * value, GParamSpec * pspec)
 {
-  GstSyncTcpControlClient *self = GST_SYNC_TCP_CONTROL_CLIENT (object);
+  GstSyncControlTcpClient *self = GST_SYNC_CONTROL_TCP_CLIENT (object);
 
   switch (property_id) {
     case PROP_ADDRESS:
@@ -109,11 +109,11 @@ gst_sync_tcp_control_client_get_property (GObject * object, guint property_id,
 }
 
 static void
-gst_sync_tcp_control_client_dispose (GObject * object)
+gst_sync_control_tcp_client_dispose (GObject * object)
 {
-  GstSyncTcpControlClient *self = GST_SYNC_TCP_CONTROL_CLIENT (object);
+  GstSyncControlTcpClient *self = GST_SYNC_CONTROL_TCP_CLIENT (object);
 
-  gst_sync_tcp_control_client_stop (self);
+  gst_sync_control_tcp_client_stop (self);
 
   g_free (self->addr);
   self->addr = NULL;
@@ -129,7 +129,7 @@ gst_sync_tcp_control_client_dispose (GObject * object)
 static void
 read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
 {
-  GstSyncTcpControlClient * self = GST_SYNC_TCP_CONTROL_CLIENT (user_data);
+  GstSyncControlTcpClient * self = GST_SYNC_CONTROL_TCP_CLIENT (user_data);
   GInputStream *istream = (GInputStream *) object;
   JsonNode *node;
   GError *err = NULL;
@@ -159,7 +159,7 @@ read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
 }
 
 static void
-read_sync_info (GstSyncTcpControlClient * self)
+read_sync_info (GstSyncControlTcpClient * self)
 {
   GInputStream *istream;
 
@@ -171,7 +171,7 @@ read_sync_info (GstSyncTcpControlClient * self)
 }
 
 static gboolean
-gst_sync_tcp_control_client_start (GstSyncTcpControlClient * self,
+gst_sync_control_tcp_client_start (GstSyncControlTcpClient * self,
     GError ** err)
 {
   GSocketClient *client;
@@ -195,7 +195,7 @@ done:
 }
 
 static void
-gst_sync_tcp_control_client_stop (GstSyncTcpControlClient * self)
+gst_sync_control_tcp_client_stop (GstSyncControlTcpClient * self)
 {
   if (self->conn) {
     g_io_stream_close (G_IO_STREAM (self->conn), NULL, NULL);
@@ -205,13 +205,13 @@ gst_sync_tcp_control_client_stop (GstSyncTcpControlClient * self)
 }
 
 static void
-gst_sync_tcp_control_client_class_init (GstSyncTcpControlClientClass * klass)
+gst_sync_control_tcp_client_class_init (GstSyncControlTcpClientClass * klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-  object_class->dispose = gst_sync_tcp_control_client_dispose;
-  object_class->set_property = gst_sync_tcp_control_client_set_property;
-  object_class->get_property = gst_sync_tcp_control_client_get_property;
+  object_class->dispose = gst_sync_control_tcp_client_dispose;
+  object_class->set_property = gst_sync_control_tcp_client_set_property;
+  object_class->get_property = gst_sync_control_tcp_client_get_property;
 
   g_object_class_install_property (object_class, PROP_ADDRESS,
       g_param_spec_string ("address", "Address", "Address to listen on", NULL,
@@ -227,19 +227,19 @@ gst_sync_tcp_control_client_class_init (GstSyncTcpControlClientClass * klass)
         "Sync parameters for clients to use", GST_TYPE_SYNC_SERVER_INFO,
         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
-  g_signal_new_class_handler ("start", GST_TYPE_SYNC_TCP_CONTROL_CLIENT,
+  g_signal_new_class_handler ("start", GST_TYPE_SYNC_CONTROL_TCP_CLIENT,
       G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST, G_CALLBACK
-      (gst_sync_tcp_control_client_start), NULL, NULL, NULL, G_TYPE_BOOLEAN, 1,
+      (gst_sync_control_tcp_client_start), NULL, NULL, NULL, G_TYPE_BOOLEAN, 1,
       G_TYPE_POINTER /* GError ** */, NULL);
 
-  g_signal_new_class_handler ("stop", GST_TYPE_SYNC_TCP_CONTROL_CLIENT,
+  g_signal_new_class_handler ("stop", GST_TYPE_SYNC_CONTROL_TCP_CLIENT,
       G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST, G_CALLBACK
-      (gst_sync_tcp_control_client_stop), NULL, NULL, NULL, G_TYPE_NONE, 0,
+      (gst_sync_control_tcp_client_stop), NULL, NULL, NULL, G_TYPE_NONE, 0,
       NULL);
 }
 
 static void
-gst_sync_tcp_control_client_init (GstSyncTcpControlClient *self)
+gst_sync_control_tcp_client_init (GstSyncControlTcpClient *self)
 {
   self->addr = NULL;
   self->port = 0;
