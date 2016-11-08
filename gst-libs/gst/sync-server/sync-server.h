@@ -40,8 +40,6 @@ typedef struct _GstSyncServerClass GstSyncServerClass;
 
 /* Server messages */
 
-#define DEFAULT_SYNC_SERVER_VERSION 1
-
 typedef struct _GstSyncServerInfo GstSyncServerInfo;
 
 struct _GstSyncServerInfo {
