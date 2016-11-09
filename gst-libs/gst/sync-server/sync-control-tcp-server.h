@@ -30,13 +30,6 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (GstSyncControlTcpServer, gst_sync_control_tcp_server,
     GST, SYNC_CONTROL_TCP_SERVER, GObject);
 
-/* API */
-
-gboolean gst_sync_control_tcp_server_start (GstSyncControlTcpServer * self,
-    GError ** error);
-
-void gst_sync_control_tcp_server_stop (GstSyncControlTcpServer * self);
-
 G_END_DECLS
 
 #endif /* __GST_SYNC_CONTROL_TCP_SERVER_H */

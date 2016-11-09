@@ -224,6 +224,7 @@ gst_sync_server_cleanup (GstSyncServer * self)
   }
 
   if (self->server) {
+    g_signal_emit_by_name (self->server, "stop");
     g_object_unref (self->server);
     self->server = NULL;
   }
@@ -552,6 +553,7 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 {
   GstElement *uridecodebin;
   GstBus *bus;
+  gboolean ret;
 
   self->clock = gst_system_clock_obtain ();
 
@@ -564,6 +566,10 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   /* FIXME: make the transport configurable */
   self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER,
       "address", self->control_addr, "port", self->control_port, NULL);
+
+  g_signal_emit_by_name (self->server, "start", error, &ret);
+  if (!ret)
+    goto fail;
 
   self->clock_provider =
     gst_net_time_provider_new (self->clock, self->control_addr, 0);

@@ -61,6 +61,12 @@ enum {
 
 #define DEFAULT_PORT 0
 
+static gboolean
+gst_sync_control_tcp_server_start (GstSyncControlTcpServer * self,
+    GError ** err);
+static gboolean
+gst_sync_control_tcp_server_stop (GstSyncControlTcpServer * self);
+
 static void
 gst_sync_control_tcp_server_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
@@ -127,11 +133,7 @@ gst_sync_control_tcp_server_dispose (GObject * object)
 {
   GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (object);
 
-  if (self->server) {
-    g_socket_service_stop (self->server);
-    g_object_unref (self->server);
-    self->server = NULL;
-  }
+  gst_sync_control_tcp_server_stop (self);
 
   g_free (self->addr);
   self->addr = NULL;
@@ -290,31 +292,6 @@ done:
 }
 
 static void
-gst_sync_control_tcp_server_constructed (GObject * object)
-{
-  /* We have address and port set, so we can start the socket service */
-  GstSyncControlTcpServer *self = GST_SYNC_CONTROL_TCP_SERVER (object);
-  GSocketAddress *sockaddr;
-  GError *err = NULL;
-
-  G_OBJECT_CLASS (parent_class)->constructed (object);
-
-  self->server = g_threaded_socket_service_new (-1);
-
-  g_signal_connect (self->server, "run", G_CALLBACK (run_cb), self);
-
-  sockaddr = g_inet_socket_address_new_from_string (self->addr, self->port);
-
-  if (!g_socket_listener_add_address (G_SOCKET_LISTENER (self->server),
-        sockaddr, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_TCP, NULL, NULL,
-        &err)) {
-    g_warning ("Could not set up socket listener: %s", err->message);
-    g_error_free (err);
-    return;
-  }
-}
-
-static void
 gst_sync_control_tcp_server_class_init (GstSyncControlTcpServerClass * klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
@@ -322,21 +299,30 @@ gst_sync_control_tcp_server_class_init (GstSyncControlTcpServerClass * klass)
   object_class->dispose = gst_sync_control_tcp_server_dispose;
   object_class->set_property = gst_sync_control_tcp_server_set_property;
   object_class->get_property = gst_sync_control_tcp_server_get_property;
-  object_class->constructed = gst_sync_control_tcp_server_constructed;
 
   g_object_class_install_property (object_class, PROP_ADDRESS,
       g_param_spec_string ("address", "Address", "Address to listen on", NULL,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_PORT,
       g_param_spec_int ("port", "Port", "Port to listen on", 0, 65535,
         DEFAULT_PORT,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_SYNC_INFO,
       g_param_spec_boxed ("sync-info", "Sync info",
         "Sync parameters for clients to use", GST_TYPE_SYNC_SERVER_INFO,
         G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  g_signal_new_class_handler ("start", GST_TYPE_SYNC_CONTROL_TCP_SERVER,
+      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST,
+      G_CALLBACK (gst_sync_control_tcp_server_start), NULL, NULL, NULL,
+      G_TYPE_BOOLEAN, 1, G_TYPE_POINTER /* GError ** */, NULL);
+
+  g_signal_new_class_handler ("stop", GST_TYPE_SYNC_CONTROL_TCP_SERVER,
+      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST,
+      G_CALLBACK (gst_sync_control_tcp_server_stop), NULL, NULL, NULL,
+      G_TYPE_NONE, 0, NULL);
 }
 
 static void
@@ -347,4 +333,35 @@ gst_sync_control_tcp_server_init (GstSyncControlTcpServer *self)
 
   g_rw_lock_init (&self->info_lock);
   self->info = NULL;
+}
+
+static gboolean
+gst_sync_control_tcp_server_start (GstSyncControlTcpServer * self,
+    GError ** err)
+{
+  /* We have address and port set, so we can start the socket service */
+  GSocketAddress *sockaddr;
+
+  self->server = g_threaded_socket_service_new (-1);
+
+  g_signal_connect (self->server, "run", G_CALLBACK (run_cb), self);
+
+  sockaddr = g_inet_socket_address_new_from_string (self->addr, self->port);
+
+  if (!g_socket_listener_add_address (G_SOCKET_LISTENER (self->server),
+        sockaddr, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_TCP, NULL, NULL,
+        err))
+    return FALSE;
+
+  return TRUE;
+}
+
+static gboolean
+gst_sync_control_tcp_server_stop (GstSyncControlTcpServer * self)
+{
+  if (self->server) {
+    g_socket_service_stop (self->server);
+    g_object_unref (self->server);
+    self->server = NULL;
+  }
 }
