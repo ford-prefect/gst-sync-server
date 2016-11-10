@@ -30,10 +30,6 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (GstSyncControlTcpClient, gst_sync_control_tcp_client,
     GST, SYNC_CONTROL_TCP_CLIENT, GObject);
 
-/* API */
-
-/* construct with g_object_new() */
-
 G_END_DECLS
 
 #endif /* __GST_SYNC_CONTROL_TCP_CLIENT_H */

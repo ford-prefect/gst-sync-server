@@ -4,6 +4,7 @@ libgstsyncserver_@GST_API_VERSION@_la_SOURCES = \
         sync-server.c                           \
         sync-client.c                           \
         sync-control-server.c                   \
+        sync-control-client.c                   \
         sync-control-tcp-server.c               \
         sync-control-tcp-client.c
 
@@ -24,5 +25,6 @@ libgstsyncserver_@GST_API_VERSION@include_HEADERS = \
         sync-server.h                           \
         sync-client.h                           \
         sync-control-server.h                   \
+        sync-control-client.h                   \
         sync-control-tcp-server.h               \
         sync-control-tcp-client.h

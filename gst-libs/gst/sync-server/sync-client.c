@@ -23,6 +23,7 @@
 
 #include "sync-server.h"
 #include "sync-client.h"
+#include "sync-control-client.h"
 #include "sync-control-tcp-client.h"
 
 enum {
@@ -43,7 +44,7 @@ struct _GstSyncClient {
   GstPipeline *pipeline;
   GstClock *clock;
 
-  GstSyncControlTcpClient *client;
+  GstSyncControlClient *client;
   gboolean synchronised;
 
   /* See bus_cb() for why this needs to be atomic */
@@ -97,6 +98,7 @@ gst_sync_client_dispose (GObject * object)
   g_mutex_clear (&self->info_lock);
 
   if (self->client) {
+    gst_sync_control_client_stop (self->client);
     g_object_unref (self->client);
     self->client = NULL;
   }
@@ -275,7 +277,7 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
     /* First sync info update */
     GstBus *bus;
 
-    self->info = info;
+    self->info = g_boxed_copy (GST_TYPE_SYNC_SERVER_INFO, info);
 
     self->clock = gst_net_client_clock_new ("sync-server-clock",
         self->info->clock_addr, self->info->clock_port, 0);
@@ -298,7 +300,7 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
     GstSyncServerInfo *old_info;
 
     old_info = self->info;
-    self->info = info;
+    self->info = g_boxed_copy (GST_TYPE_SYNC_SERVER_INFO, info);
 
     if (!g_str_equal (old_info->uri, info->uri)) {
       /* URI changed, just reset pipeline completely */
@@ -411,7 +413,7 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
   GstSyncClient *self = GST_SYNC_CLIENT (user_data);
   GstSyncServerInfo * info;
 
-  g_object_get (self->client, "sync-info", &info, NULL);
+  info = gst_sync_control_client_get_sync_info (self->client);
 
   GST_DEBUG_OBJECT (self, "Got sync information:");
   GST_DEBUG_OBJECT (self, "\tClk: %s:%u", info->clock_addr, info->clock_port);
@@ -458,13 +460,18 @@ gst_sync_client_start (GstSyncClient * self, GError ** err)
 {
   gboolean ret;
 
-  self->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, "address",
-      self->control_addr, "port", self->control_port, NULL);
+  self->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
+  g_return_val_if_fail (GST_IS_SYNC_CONTROL_CLIENT (self->client), FALSE);
 
+  gst_sync_control_client_set_address (self->client, self->control_addr);
+  gst_sync_control_client_set_port (self->client, self->control_port);
+
+  /* FIXME: can this be moved into a convenience method like the rest of the
+   * interface? */
   g_signal_connect (self->client, "notify::sync-info",
       G_CALLBACK (sync_info_notify), self);
 
-  g_signal_emit_by_name (self->client, "start", err, &ret);
+  ret = gst_sync_control_client_start (self->client, err);
 
   return ret;
 }
@@ -472,5 +479,5 @@ gst_sync_client_start (GstSyncClient * self, GError ** err)
 void
 gst_sync_client_stop (GstSyncClient * self)
 {
-  g_signal_emit_by_name (self->client, "stop");
+  gst_sync_control_client_stop (self->client);
 }
