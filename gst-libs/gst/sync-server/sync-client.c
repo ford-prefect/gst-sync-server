@@ -64,6 +64,7 @@ GST_DEBUG_CATEGORY_STATIC (sync_client_debug);
 
 enum {
   PROP_0,
+  PROP_CONTROL_CLIENT,
   PROP_CONTROL_ADDRESS,
   PROP_CONTROL_PORT,
   PROP_PIPELINE,
@@ -334,6 +335,13 @@ gst_sync_client_set_property (GObject * object, guint property_id,
   GstSyncClient *self = GST_SYNC_CLIENT (object);
 
   switch (property_id) {
+    case PROP_CONTROL_CLIENT:
+      if (self->client)
+        g_object_unref (self->client);
+
+      self->client = g_value_dup_object (value);
+      break;
+
     case PROP_CONTROL_ADDRESS:
       if (self->control_addr)
         g_free (self->control_addr);
@@ -358,6 +366,10 @@ gst_sync_client_get_property (GObject * object, guint property_id,
   GstSyncClient *self = GST_SYNC_CLIENT (object);
 
   switch (property_id) {
+    case PROP_CONTROL_CLIENT:
+      g_value_set_object (value, self->client);
+      break;
+
     case PROP_CONTROL_ADDRESS:
       g_value_set_string (value, self->control_addr);
       break;
@@ -386,6 +398,11 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
     GST_DEBUG_FUNCPTR (gst_sync_client_set_property);
   object_class->get_property =
     GST_DEBUG_FUNCPTR (gst_sync_client_get_property);
+
+  g_object_class_install_property (object_class, PROP_CONTROL_CLIENT,
+      g_param_spec_object ("control-client", "Control client",
+        "Control client object (NULL => use TCP control client)",
+        G_TYPE_OBJECT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_CONTROL_ADDRESS,
       g_param_spec_string ("control-address", "Control address",
@@ -460,11 +477,14 @@ gst_sync_client_start (GstSyncClient * self, GError ** err)
 {
   gboolean ret;
 
-  self->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
+  if (!self->client)
+    self->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
   g_return_val_if_fail (GST_IS_SYNC_CONTROL_CLIENT (self->client), FALSE);
 
-  gst_sync_control_client_set_address (self->client, self->control_addr);
-  gst_sync_control_client_set_port (self->client, self->control_port);
+  if (self->control_addr) {
+    gst_sync_control_client_set_address (self->client, self->control_addr);
+    gst_sync_control_client_set_port (self->client, self->control_port);
+  }
 
   /* FIXME: can this be moved into a convenience method like the rest of the
    * interface? */

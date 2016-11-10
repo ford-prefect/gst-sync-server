@@ -63,6 +63,7 @@ GST_DEBUG_CATEGORY_STATIC (sync_server_debug);
 
 enum {
   PROP_0,
+  PROP_CONTROL_SERVER,
   PROP_CONTROL_ADDRESS,
   PROP_CONTROL_PORT,
   PROP_URI,
@@ -290,6 +291,13 @@ gst_sync_server_set_property (GObject * object, guint property_id,
   GstSyncServer *self = GST_SYNC_SERVER (object);
 
   switch (property_id) {
+    case PROP_CONTROL_SERVER:
+      if (self->server)
+        g_object_unref (self->server);
+
+      self->server = g_value_dup_object (value);
+      break;
+
     case PROP_CONTROL_ADDRESS:
       if (self->control_addr)
         g_free (self->control_addr);
@@ -333,6 +341,10 @@ gst_sync_server_get_property (GObject * object, guint property_id,
   GstSyncServer *self = GST_SYNC_SERVER (object);
 
   switch (property_id) {
+    case PROP_CONTROL_SERVER:
+      g_value_set_object (value, self->server);
+      break;
+
     case PROP_CONTROL_ADDRESS:
       g_value_set_string (value, self->control_addr);
       break;
@@ -365,6 +377,11 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
     GST_DEBUG_FUNCPTR (gst_sync_server_set_property);
   object_class->get_property =
     GST_DEBUG_FUNCPTR (gst_sync_server_get_property);
+
+  g_object_class_install_property (object_class, PROP_CONTROL_SERVER,
+      g_param_spec_object ("control-server", "Control server",
+        "Control server object (NULL => use TCP control server)",
+        G_TYPE_OBJECT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_CONTROL_ADDRESS,
       g_param_spec_string ("control-address", "Control address",
@@ -563,11 +580,14 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
     goto fail;
   }
 
-  self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
+  if (!self->server)
+    self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
   g_return_val_if_fail (GST_IS_SYNC_CONTROL_SERVER (self->server), FALSE);
 
-  gst_sync_control_server_set_address (self->server, self->control_addr);
-  gst_sync_control_server_set_port (self->server, self->control_port);
+  if (self->control_addr) {
+    gst_sync_control_server_set_address (self->server, self->control_addr);
+    gst_sync_control_server_set_port (self->server, self->control_port);
+  }
 
   if (!gst_sync_control_server_start (self->server, error))
     goto fail;
