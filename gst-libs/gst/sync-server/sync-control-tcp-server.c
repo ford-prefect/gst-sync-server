@@ -30,6 +30,7 @@
 #include <glib-unix.h>
 
 #include "sync-server.h"
+#include "sync-control-server.h"
 #include "sync-control-tcp-server.h"
 
 struct _GstSyncControlTcpServer {
@@ -49,8 +50,8 @@ struct _GstSyncControlTcpServerClass {
 };
 
 #define gst_sync_control_tcp_server_parent_class parent_class
-G_DEFINE_TYPE (GstSyncControlTcpServer, gst_sync_control_tcp_server,
-    G_TYPE_OBJECT);
+G_DEFINE_TYPE_WITH_CODE (GstSyncControlTcpServer, gst_sync_control_tcp_server,
+    G_TYPE_OBJECT, G_IMPLEMENT_INTERFACE (GST_TYPE_SYNC_CONTROL_SERVER, NULL));
 
 enum {
   PROP_0,
@@ -58,8 +59,6 @@ enum {
   PROP_PORT,
   PROP_SYNC_INFO,
 };
-
-#define DEFAULT_PORT 0
 
 static gboolean
 gst_sync_control_tcp_server_start (GstSyncControlTcpServer * self,
@@ -300,29 +299,14 @@ gst_sync_control_tcp_server_class_init (GstSyncControlTcpServerClass * klass)
   object_class->set_property = gst_sync_control_tcp_server_set_property;
   object_class->get_property = gst_sync_control_tcp_server_get_property;
 
-  g_object_class_install_property (object_class, PROP_ADDRESS,
-      g_param_spec_string ("address", "Address", "Address to listen on", NULL,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+  g_object_class_override_property (object_class, PROP_ADDRESS, "address");
+  g_object_class_override_property (object_class, PROP_PORT, "port");
+  g_object_class_override_property (object_class, PROP_SYNC_INFO, "sync-info");
 
-  g_object_class_install_property (object_class, PROP_PORT,
-      g_param_spec_int ("port", "Port", "Port to listen on", 0, 65535,
-        DEFAULT_PORT,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (object_class, PROP_SYNC_INFO,
-      g_param_spec_boxed ("sync-info", "Sync info",
-        "Sync parameters for clients to use", GST_TYPE_SYNC_SERVER_INFO,
-        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
-
-  g_signal_new_class_handler ("start", GST_TYPE_SYNC_CONTROL_TCP_SERVER,
-      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST,
-      G_CALLBACK (gst_sync_control_tcp_server_start), NULL, NULL, NULL,
-      G_TYPE_BOOLEAN, 1, G_TYPE_POINTER /* GError ** */, NULL);
-
-  g_signal_new_class_handler ("stop", GST_TYPE_SYNC_CONTROL_TCP_SERVER,
-      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST,
-      G_CALLBACK (gst_sync_control_tcp_server_stop), NULL, NULL, NULL,
-      G_TYPE_NONE, 0, NULL);
+  g_signal_override_class_handler ("start", GST_TYPE_SYNC_CONTROL_TCP_SERVER,
+      G_CALLBACK (gst_sync_control_tcp_server_start));
+  g_signal_override_class_handler ("stop", GST_TYPE_SYNC_CONTROL_TCP_SERVER,
+      G_CALLBACK (gst_sync_control_tcp_server_stop));
 }
 
 static void

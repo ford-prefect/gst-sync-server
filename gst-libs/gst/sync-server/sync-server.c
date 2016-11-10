@@ -24,6 +24,7 @@
 #include <glib-unix.h>
 
 #include "sync-server.h"
+#include "sync-control-server.h"
 #include "sync-control-tcp-server.h"
 
 struct _GstSyncServer {
@@ -47,7 +48,7 @@ struct _GstSyncServer {
   GstNetTimeProvider *clock_provider;
   GstClock *clock;
 
-  GstSyncControlTcpServer *server;
+  GstSyncControlServer *server;
 };
 
 struct _GstSyncServerClass {
@@ -224,7 +225,7 @@ gst_sync_server_cleanup (GstSyncServer * self)
   }
 
   if (self->server) {
-    g_signal_emit_by_name (self->server, "stop");
+    gst_sync_control_server_stop (self->server);
     g_object_unref (self->server);
     self->server = NULL;
   }
@@ -507,7 +508,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         /* FIXME: Implement a "ready" signal */
         fill_sync_info (self, &info);
 
-        g_object_set (self->server, "sync-info", &info, NULL);
+        gst_sync_control_server_set_sync_info (self->server, &info);
       }
 
       break;
@@ -553,7 +554,6 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
 {
   GstElement *uridecodebin;
   GstBus *bus;
-  gboolean ret;
 
   self->clock = gst_system_clock_obtain ();
 
@@ -563,12 +563,13 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
     goto fail;
   }
 
-  /* FIXME: make the transport configurable */
-  self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER,
-      "address", self->control_addr, "port", self->control_port, NULL);
+  self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
+  g_return_val_if_fail (GST_IS_SYNC_CONTROL_SERVER (self->server), FALSE);
 
-  g_signal_emit_by_name (self->server, "start", error, &ret);
-  if (!ret)
+  gst_sync_control_server_set_address (self->server, self->control_addr);
+  gst_sync_control_server_set_port (self->server, self->control_port);
+
+  if (!gst_sync_control_server_start (self->server, error))
     goto fail;
 
   self->clock_provider =
