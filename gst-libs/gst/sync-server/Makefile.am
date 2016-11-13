@@ -3,6 +3,7 @@ lib_LTLIBRARIES = libgstsyncserver-@GST_API_VERSION@.la
 libgstsyncserver_@GST_API_VERSION@_la_SOURCES = \
         sync-server.c                           \
         sync-client.c                           \
+        sync-server-info.c                      \
         sync-control-server.c                   \
         sync-control-client.c                   \
         sync-control-tcp-server.c               \
