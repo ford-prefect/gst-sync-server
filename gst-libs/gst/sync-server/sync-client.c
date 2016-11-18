@@ -71,7 +71,7 @@ enum {
 };
 
 #define DEFAULT_PORT 0
-#define DEFAULT_SEEK_TOLERANCE (50 * GST_MSECOND)
+#define DEFAULT_SEEK_TOLERANCE (200 * GST_MSECOND)
 
 static void
 gst_sync_client_dispose (GObject * object)
