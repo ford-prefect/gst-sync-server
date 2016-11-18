@@ -213,7 +213,8 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         GST_INFO_OBJECT (self, "Seeking: %lu", cur_pos);
 
         if (!gst_element_seek_simple (GST_ELEMENT (self->pipeline),
-              GST_FORMAT_TIME, GST_SEEK_FLAG_ACCURATE | GST_SEEK_FLAG_FLUSH,
+              GST_FORMAT_TIME, GST_SEEK_FLAG_SNAP_AFTER |
+              GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_FLUSH,
               cur_pos)) {
           GST_WARNING_OBJECT (self, "Could not perform seek");
 
