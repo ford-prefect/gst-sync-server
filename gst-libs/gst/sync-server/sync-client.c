@@ -149,8 +149,10 @@ update_pipeline (GstSyncClient * self)
 
   /* We need to do PAUSED and PLAYING in separate steps so we don't have a race
    * between us and reading seek_state in bus_cb() */
-  if (!self->info->paused)
+  if (!self->info->paused) {
+    set_base_time (self);
     gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
+  }
 }
 
 static gboolean
@@ -218,12 +220,14 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
               cur_pos)) {
           GST_WARNING_OBJECT (self, "Could not perform seek");
 
-          set_base_time (self);
           g_atomic_int_set (&self->seek_state, DONE_SEEK);
         }
       } else {
         /* For the seek case, the base time will be set after the seek */
-        set_base_time (self);
+        GST_INFO_OBJECT (self, "Not seeking as %lu - %lu = %lu <= %lu", now,
+            self->info->base_time + self->info->paused_time,
+            now - self->info->base_time - self->info->paused_time,
+            DEFAULT_SEEK_TOLERANCE);
         g_atomic_int_set (&self->seek_state, DONE_SEEK);
       }
 
