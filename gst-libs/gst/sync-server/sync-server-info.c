@@ -22,6 +22,12 @@
 
 #include "sync-server.h"
 
+void
+gst_sync_server_info_free (GstSyncServerInfo *info)
+{
+  g_boxed_free (GST_TYPE_SYNC_SERVER_INFO, info);
+}
+
 static gpointer
 _gst_sync_server_info_copy (gpointer from)
 {

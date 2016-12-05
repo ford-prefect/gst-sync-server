@@ -72,12 +72,6 @@ enum {
 #define DEFAULT_PORT 0
 #define DEFAULT_LATENCY 300 * GST_MSECOND
 
-void
-gst_sync_server_info_free (GstSyncServerInfo *info)
-{
-  g_boxed_free (GST_TYPE_SYNC_SERVER_INFO, info);
-}
-
 static void
 gst_sync_server_cleanup (GstSyncServer * self)
 {
