@@ -1,7 +1,10 @@
 AC_INIT([gst-sync-server], [0.0.1])
 AC_CONFIG_SRCDIR([Makefile.am])
-AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS(config.h)
+
+dnl Add parameters for aclocal (keep in sync with Makefile.am)
+AC_SUBST(ACLOCAL_AMFLAGS, "-I m4 -I common/m4")
+AC_CONFIG_MACRO_DIR([m4])
 
 AM_INIT_AUTOMAKE([-Wno-portability 1.11 no-dist-gzip dist-xz tar-ustar subdir-objects])
 AM_MAINTAINER_MODE
@@ -40,6 +43,8 @@ AC_SUBST(WARNING_CFLAGS)
 
 AC_CONFIG_FILES([
   Makefile
+  common/Makefile
+  common/m4/Makefile
   gst-libs/Makefile
   gst-libs/gst/Makefile
   gst-libs/gst/sync-server/Makefile
