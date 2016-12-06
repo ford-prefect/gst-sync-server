@@ -20,7 +20,7 @@
 
 #include <glib-object.h>
 #include <gst/gst.h>
-#include "sync-client.h"
+#include <gst/sync-server/sync-client.h>
 
 #define DEFAULT_ADDR "127.0.0.1"
 #define DEFAULT_PORT 3695

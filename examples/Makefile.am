@@ -2,7 +2,7 @@ noinst_PROGRAMS =       \
         test-server     \
         test-client
 
-AM_CFLAGS = -I$(top_srcdir)/gst-libs/gst/sync-server
+AM_CFLAGS = -I$(top_srcdir)/gst-libs
 LDADD = $(top_builddir)/gst-libs/gst/sync-server/libgstsyncserver-@GST_API_VERSION@.la
 
 test_server_CFLAGS =    \

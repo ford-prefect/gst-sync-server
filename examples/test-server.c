@@ -24,7 +24,7 @@
 
 #include <gst/gst.h>
 
-#include "sync-server.h"
+#include <gst/sync-server/sync-server.h>
 
 #define DEFAULT_ADDR "0.0.0.0"
 #define DEFAULT_PORT 3695
