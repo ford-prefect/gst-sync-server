@@ -1,0 +1,4 @@
+#include <gst/gst.h>
+
+#include <gst/sync-server/sync-server.h>
+gst_sync_server_get_type

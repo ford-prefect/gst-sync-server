@@ -49,13 +49,14 @@ GType gst_sync_server_info_get_type ();
 void gst_sync_server_info_free (GstSyncServerInfo *info);
 
 /* API */
-GstSyncServer * gst_sync_server_new (const gchar * addr, gint port);
+GstSyncServer *
+gst_sync_server_new (const gchar * control_addr, gint control_port);
 
-gboolean gst_sync_server_start (GstSyncServer * self, GError ** error);
+gboolean gst_sync_server_start (GstSyncServer * server, GError ** error);
 
-void gst_sync_server_set_paused (GstSyncServer * self, gboolean paused);
+void gst_sync_server_set_paused (GstSyncServer * server, gboolean paused);
 
-void gst_sync_server_stop (GstSyncServer * self);
+void gst_sync_server_stop (GstSyncServer * server);
 
 G_END_DECLS
 

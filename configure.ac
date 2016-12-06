@@ -41,6 +41,10 @@ AC_SUBST(GST_API_VERSION)
 WARNING_CFLAGS="-Wall"
 AC_SUBST(WARNING_CFLAGS)
 
+dnl check for documentation tools
+AG_GST_DOCBOOK_CHECK
+GTK_DOC_CHECK([1.12])
+
 AC_CONFIG_FILES([
   Makefile
   common/Makefile
@@ -48,6 +52,9 @@ AC_CONFIG_FILES([
   gst-libs/Makefile
   gst-libs/gst/Makefile
   gst-libs/gst/sync-server/Makefile
+  docs/Makefile
+  docs/version.entities
+  docs/libs/Makefile
   examples/Makefile
 ])
 

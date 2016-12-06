@@ -18,6 +18,26 @@
  * Boston, MA 02110-1301, USA.
  */
 
+/**
+ * SECTION: gst-sync-server
+ * @short_description: Provides a server object to publish information that
+ *                     clients on a network can use to play a stream in a
+ *                     synchronised manner.
+ *
+ * The #GstSyncServer object provides API to start a server on one device on a
+ * network that other devices (using #GstSyncClient) can communicate with to
+ * play a stream such that all devices are playing the same stream at the same
+ * time.
+ *
+ * It also provides API to control these clients and perform tasks such as
+ * switching the currently playing stream, pausing/unpausing, etc.
+ *
+ * #GstSyncServer itself does not implement the network transport for
+ * controlling the client, but defers that to an object that implements the
+ * #GstSyncControlServer interface. A default TCP-based implementation is
+ * provided with this library, however.
+ */
+
 #include <gst/gst.h>
 #include <gst/net/gstnet.h>
 #include <glib-unix.h>
@@ -239,29 +259,66 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
   object_class->get_property =
     GST_DEBUG_FUNCPTR (gst_sync_server_get_property);
 
+  /**
+   * GstSyncServer:control-server:
+   *
+   * The implementation of the control protocol that should be used to
+   * communicate with clients. This object must implement the
+   * #GstSyncControlServer interface. If set to NULL, a built-in TCP
+   * implementation is used.
+   */
   g_object_class_install_property (object_class, PROP_CONTROL_SERVER,
       g_param_spec_object ("control-server", "Control server",
         "Control server object (NULL => use TCP control server)",
         G_TYPE_OBJECT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncServer:control-address:
+   *
+   * The network address for the control server to listen on.
+   */
   g_object_class_install_property (object_class, PROP_CONTROL_ADDRESS,
       g_param_spec_string ("control-address", "Control address",
         "Address for control", NULL,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncServer:control-port:
+   *
+   * The network port for the control server to listen on.
+   */
   g_object_class_install_property (object_class, PROP_CONTROL_PORT,
       g_param_spec_int ("control-port", "Control port", "Port for control", 0,
         65535, DEFAULT_PORT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncServer:uri:
+   *
+   * The URI that clients should play.
+   */
   g_object_class_install_property (object_class, PROP_URI,
       g_param_spec_string ("uri", "URI", "URI to provide clients", NULL,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncServer:latency:
+   *
+   * The pipeline latency that clients should use. This should be large enough
+   * to account for any buffering that is expected (network related for
+   * HTTP/RTP/... streams, and worst-case audio device latency).
+   */
   g_object_class_install_property (object_class, PROP_LATENCY,
       g_param_spec_uint64 ("latency", "Latency",
         "Pipeline latency for clients", 0, G_MAXUINT64, DEFAULT_LATENCY,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncServer::eos
+   *
+   * Emitted when the currently playing URI reaches the end of the stream. Can
+   * be used, for example, to distribute a new URI to clients via the
+   * #GstSyncServer:uri property.
+   */
   g_signal_new_class_handler ("eos", GST_TYPE_SYNC_SERVER, G_SIGNAL_RUN_FIRST,
       NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
 
@@ -286,6 +343,16 @@ gst_sync_server_init (GstSyncServer * self)
   self->fakesinks = g_hash_table_new (g_direct_hash, g_direct_equal);
 }
 
+/**
+ * gst_sync_server_new:
+ * @control_addr: The network address that the server should listen on
+ * @control_port: The network port that the server should listen on
+ *
+ * Creates a new #GstSyncServer object that will listen on the given network
+ * address/port pair once started.
+ *
+ * Returns: (transfer full): A new #GstSyncServer object.
+ */
 GstSyncServer *
 gst_sync_server_new (const gchar * control_addr, gint control_port)
 {
@@ -427,67 +494,79 @@ autoplug_continue_cb (GstElement * uridecodebin, GstPad * pad, GstCaps * caps,
   return TRUE;
 }
 
+/**
+ * gst_sync_server_start:
+ * @server: The #GstSyncServer object
+ * @error: If non-NULL, will be set to the appropriate #GError if starting the
+ *         server fails.
+ *
+ * Starts the #GstSyncServer so that clients can connect and start synchronised
+ * playback.
+ *
+ * Returns: #TRUE on success, and #FALSE if the server could not be started.
+ */
 gboolean
-gst_sync_server_start (GstSyncServer * self, GError ** error)
+gst_sync_server_start (GstSyncServer * server, GError ** error)
 {
   GstElement *uridecodebin;
   GstBus *bus;
 
-  self->clock = gst_system_clock_obtain ();
+  server->clock = gst_system_clock_obtain ();
 
-  if (!self->uri) {
-    GST_ERROR_OBJECT (self, "Need a URI before we can start");
+  if (!server->uri) {
+    GST_ERROR_OBJECT (server, "Need a URI before we can start");
     /* FIXME: Set error */
     goto fail;
   }
 
-  if (!self->server)
-    self->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
-  g_return_val_if_fail (GST_IS_SYNC_CONTROL_SERVER (self->server), FALSE);
+  if (!server->server)
+    server->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
+  g_return_val_if_fail (GST_IS_SYNC_CONTROL_SERVER (server->server), FALSE);
 
-  if (self->control_addr) {
-    gst_sync_control_server_set_address (self->server, self->control_addr);
-    gst_sync_control_server_set_port (self->server, self->control_port);
+  if (server->control_addr) {
+    gst_sync_control_server_set_address (server->server, server->control_addr);
+    gst_sync_control_server_set_port (server->server, server->control_port);
   }
 
-  if (!gst_sync_control_server_start (self->server, error))
+  if (!gst_sync_control_server_start (server->server, error))
     goto fail;
 
-  self->clock_provider =
-    gst_net_time_provider_new (self->clock, self->control_addr, 0);
+  server->clock_provider =
+    gst_net_time_provider_new (server->clock, server->control_addr, 0);
 
-  if (self->clock_provider == NULL) {
-    GST_ERROR_OBJECT (self, "Could not create net time provider");
+  if (server->clock_provider == NULL) {
+    GST_ERROR_OBJECT (server, "Could not create net time provider");
     /* FIXME: Set error */
     goto fail;
   }
 
-  g_object_get (self->clock_provider, "port", &self->clock_port, NULL);
+  g_object_get (server->clock_provider, "port", &server->clock_port, NULL);
 
   uridecodebin = gst_element_factory_make ("uridecodebin", "uridecodebin");
   if (!uridecodebin) {
-    GST_ERROR_OBJECT (self, "Could not create uridecodebin");
+    GST_ERROR_OBJECT (server, "Could not create uridecodebin");
     /* FIXME: Set error */
     goto fail;
   }
 
-  g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb), self);
+  g_signal_connect (uridecodebin, "pad-added", G_CALLBACK (pad_added_cb),
+      server);
   g_signal_connect (uridecodebin, "pad-removed", G_CALLBACK (pad_removed_cb),
-      self);
+      server);
   g_signal_connect (uridecodebin, "autoplug-continue",
       G_CALLBACK (autoplug_continue_cb), NULL);
 
-  self->pipeline = gst_pipeline_new ("sync-server");
-  gst_bin_add (GST_BIN (self->pipeline), uridecodebin);
+  server->pipeline = gst_pipeline_new ("sync-server");
+  gst_bin_add (GST_BIN (server->pipeline), uridecodebin);
 
-  gst_element_set_start_time (self->pipeline, GST_CLOCK_TIME_NONE);
-  gst_pipeline_use_clock (GST_PIPELINE (self->pipeline), self->clock);
+  gst_element_set_start_time (server->pipeline, GST_CLOCK_TIME_NONE);
+  gst_pipeline_use_clock (GST_PIPELINE (server->pipeline), server->clock);
 
-  bus = gst_pipeline_get_bus (GST_PIPELINE (self->pipeline));
-  gst_bus_add_watch (bus, bus_cb, self);
+  bus = gst_pipeline_get_bus (GST_PIPELINE (server->pipeline));
+  gst_bus_add_watch (bus, bus_cb, server);
   gst_object_unref (bus);
 
-  if (!update_pipeline (self)) {
+  if (!update_pipeline (server)) {
     /* FIXME: Set error */
     goto fail;
   }
@@ -495,48 +574,61 @@ gst_sync_server_start (GstSyncServer * self, GError ** error)
   return TRUE;
 
 fail:
-  gst_sync_server_cleanup (self);
+  gst_sync_server_cleanup (server);
 
   return FALSE;
 }
 
+/**
+ * gst_sync_server_set_paused:
+ * @server: The #GstSyncServer object
+ * @paused: Whether the stream should be paused or unpaused
+ *
+ * Pauses or unpauses playback of the current stream on all connected clients.
+ */
 void
-gst_sync_server_set_paused (GstSyncServer * self, gboolean paused)
+gst_sync_server_set_paused (GstSyncServer * server, gboolean paused)
 {
   GstStateChangeReturn ret;
 
-  if (self->paused == paused)
+  if (server->paused == paused)
     return;
 
-  self->paused = paused;
+  server->paused = paused;
 
-  if (self->paused)
-    self->last_pause_time = gst_clock_get_time (self->clock);
+  if (server->paused)
+    server->last_pause_time = gst_clock_get_time (server->clock);
 
   if (!paused) {
-    self->paused_time +=
-      gst_clock_get_time (self->clock) - self->last_pause_time;
-    self->last_pause_time = GST_CLOCK_TIME_NONE;
-    GST_DEBUG_OBJECT (self, "Total paused time: %lu", self->paused_time);
+    server->paused_time +=
+      gst_clock_get_time (server->clock) - server->last_pause_time;
+    server->last_pause_time = GST_CLOCK_TIME_NONE;
+    GST_DEBUG_OBJECT (server, "Total paused time: %lu", server->paused_time);
 
-    GST_DEBUG_OBJECT (self, "Updating base time: %lu",
-        self->base_time + self->paused_time);
-    gst_element_set_base_time (self->pipeline,
-        self->base_time + self->paused_time);
+    GST_DEBUG_OBJECT (server, "Updating base time: %lu",
+        server->base_time + server->paused_time);
+    gst_element_set_base_time (server->pipeline,
+        server->base_time + server->paused_time);
   }
 
-  ret = gst_element_set_state (self->pipeline,
-      self->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
+  ret = gst_element_set_state (server->pipeline,
+      server->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
 
   if (ret == GST_STATE_CHANGE_FAILURE)
-    GST_ERROR_OBJECT (self, "Could not change paused state");
+    GST_ERROR_OBJECT (server, "Could not change paused state");
 }
 
+/**
+ * gst_sync_server_stop:
+ * @server: The #GstSyncServer object
+ *
+ * Disconnects all existing clients and stops listening for new clients.
+ */
 void
-gst_sync_server_stop (GstSyncServer * self)
+gst_sync_server_stop (GstSyncServer * server)
 {
-  if (!self->started)
+  if (!server->started)
     return;
 
-  gst_sync_server_cleanup (self);
+  gst_sync_server_cleanup (server);
 }
