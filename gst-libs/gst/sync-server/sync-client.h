@@ -30,11 +30,12 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (GstSyncClient, gst_sync_client, GST, SYNC_CLIENT,
     GObject);
 
-GstSyncClient * gst_sync_client_new (const gchar * addr, gint port);
+GstSyncClient *
+gst_sync_client_new (const gchar * control_addr, gint control_port);
 
-gboolean gst_sync_client_start (GstSyncClient * self, GError ** error);
+gboolean gst_sync_client_start (GstSyncClient * client, GError ** error);
 
-void gst_sync_client_stop (GstSyncClient * self);
+void gst_sync_client_stop (GstSyncClient * client);
 
 G_END_DECLS
 

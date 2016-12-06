@@ -18,6 +18,21 @@
  * Boston, MA 02110-1301, USA.
  */
 
+/**
+ * SECTION: gst-sync-client
+ * @short_description: Provides a client object to receive information from a
+ *                     #GstSyncServer to play a synchronised stream.
+ *
+ * The #GstSyncClient object provides API to connect to a #GstSyncServer in
+ * order to receive and play back a stream synchronised with other clients on a
+ * network.
+ *
+ * #GstSyncClient itself does not implement the network transport for receiving
+ * messages from the server, but defers that to an object that implements the
+ * #GstSyncControlClient interface. A default TCP-based implementation is
+ * provided with this library.
+ */
+
 #include <gst/gst.h>
 #include <gst/net/gstnet.h>
 
@@ -404,21 +419,47 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
   object_class->get_property =
     GST_DEBUG_FUNCPTR (gst_sync_client_get_property);
 
+  /**
+   * GstSyncClient:control-client:
+   *
+   * The implementation of the control protocol that should be used to
+   * communicate with the server. This object must implement the
+   * #GstSyncControlClient interface. If set to NULL, a built-in TCP
+   * implementation is used.
+   */
   g_object_class_install_property (object_class, PROP_CONTROL_CLIENT,
       g_param_spec_object ("control-client", "Control client",
         "Control client object (NULL => use TCP control client)",
         G_TYPE_OBJECT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncClient:control-address:
+   *
+   * The network address for the client to connect to.
+   */
   g_object_class_install_property (object_class, PROP_CONTROL_ADDRESS,
       g_param_spec_string ("control-address", "Control address",
         "Address for control server", NULL,
         G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncClient:control-port:
+   *
+   * The network port for the client to connect to.
+   */
   g_object_class_install_property (object_class, PROP_CONTROL_PORT,
       g_param_spec_int ("control-port", "Control port",
         "Port for control server", 0, 65535, DEFAULT_PORT,
         G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GstSyncClient:pipeline:
+   *
+   * A #GstPipeline object that is used for playing the synchronised stream.
+   * The object will provide the same interface as #playbin, so that clients
+   * can be configured appropriately for the platform (such as selecting the
+   * video sink and setting it up, if required).
+   */
   /* FIXME: allow a pipeline with a child with the "uri" property too */
   g_object_class_install_property (object_class, PROP_PIPELINE,
       g_param_spec_object ("pipeline", "Pipeline",
@@ -467,6 +508,16 @@ gst_sync_client_init (GstSyncClient * self)
   g_atomic_int_set (&self->seek_state, NEED_SEEK);
 }
 
+/**
+ * gst_sync_client_new:
+ * @control_addr: The network address that the client should connect to
+ * @control_port: The network port that the client should connect to
+ *
+ * Creates a new #GstSyncClient object that will connect to a #GstSyncServer on
+ * the given network address/port pair once started.
+ *
+ * Returns: (transfer full): A new #GstSyncServer object.
+ */
 GstSyncClient *
 gst_sync_client_new (const gchar * control_addr, gint control_port)
 {
@@ -477,32 +528,49 @@ gst_sync_client_new (const gchar * control_addr, gint control_port)
         NULL);
 }
 
+/**
+ * gst_sync_client_start:
+ * @client: The #GstSyncClient object
+ * @error: If non-NULL, will be set to the appropriate #GError if starting the
+ *         server fails.
+ *
+ * Starts the #GstSyncClient, connects to the configured server, and starts
+ * playback of the currently configured stream.
+ *
+ * Returns: #TRUE on success, and #FALSE if the server could not be started.
+ */
 gboolean
-gst_sync_client_start (GstSyncClient * self, GError ** err)
+gst_sync_client_start (GstSyncClient * client, GError ** err)
 {
   gboolean ret;
 
-  if (!self->client)
-    self->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
-  g_return_val_if_fail (GST_IS_SYNC_CONTROL_CLIENT (self->client), FALSE);
+  if (!client->client)
+    client->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
+  g_return_val_if_fail (GST_IS_SYNC_CONTROL_CLIENT (client->client), FALSE);
 
-  if (self->control_addr) {
-    gst_sync_control_client_set_address (self->client, self->control_addr);
-    gst_sync_control_client_set_port (self->client, self->control_port);
+  if (client->control_addr) {
+    gst_sync_control_client_set_address (client->client, client->control_addr);
+    gst_sync_control_client_set_port (client->client, client->control_port);
   }
 
   /* FIXME: can this be moved into a convenience method like the rest of the
    * interface? */
-  g_signal_connect (self->client, "notify::sync-info",
-      G_CALLBACK (sync_info_notify), self);
+  g_signal_connect (client->client, "notify::sync-info",
+      G_CALLBACK (sync_info_notify), client);
 
-  ret = gst_sync_control_client_start (self->client, err);
+  ret = gst_sync_control_client_start (client->client, err);
 
   return ret;
 }
 
+/**
+ * gst_sync_client_stop:
+ * @client: The #GstSyncClient object
+ *
+ * Disconnects from the server and stops playback.
+ */
 void
-gst_sync_client_stop (GstSyncClient * self)
+gst_sync_client_stop (GstSyncClient * client)
 {
-  gst_sync_control_client_stop (self->client);
+  gst_sync_control_client_stop (client->client);
 }

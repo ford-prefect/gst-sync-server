@@ -7,5 +7,14 @@ gst_sync_server_new
 gst_sync_server_start
 gst_sync_server_stop
 gst_sync_server_set_paused
+</SECTION>
 
+<SECTION>
+<FILE>gst-sync-client</FILE>
+<TITLE>GstSyncClient</TITLE>
+
+GstSyncClient
+gst_sync_client_new
+gst_sync_client_start
+gst_sync_client_stop
 </SECTION>
