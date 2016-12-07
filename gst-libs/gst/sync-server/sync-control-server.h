@@ -24,6 +24,7 @@
 #include <glib-object.h>
 
 #include "sync-server.h"
+#include "sync-server-info.h"
 
 G_BEGIN_DECLS
 

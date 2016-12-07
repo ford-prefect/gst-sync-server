@@ -11,3 +11,6 @@ gst_sync_control_server_get_type
 
 #include <gst/sync-server/sync-control-client.h>
 gst_sync_control_client_get_type
+
+#include <gst/sync-server/sync-server-info.h>
+gst_sync_server_info_get_type

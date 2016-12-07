@@ -98,7 +98,7 @@ gst_sync_control_tcp_client_get_property (GObject * object, guint property_id,
       break;
 
     case PROP_SYNC_INFO:
-      g_value_set_boxed (value, self->info);
+      g_value_set_object (value, self->info);
       break;
 
     default:
@@ -118,7 +118,7 @@ gst_sync_control_tcp_client_dispose (GObject * object)
   self->addr = NULL;
 
   if (self->info) {
-    gst_sync_server_info_free (self->info);
+    g_object_unref (self->info);
     self->info = NULL;
   }
 
@@ -130,10 +130,11 @@ read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
 {
   GstSyncControlTcpClient * self = GST_SYNC_CONTROL_TCP_CLIENT (user_data);
   GInputStream *istream = (GInputStream *) object;
-  JsonNode *node;
+  gssize len;
   GError *err = NULL;
 
-  if (g_input_stream_read_finish (istream, res, &err) < 1) {
+  len = g_input_stream_read_finish (istream, res, &err);
+  if (len < 1) {
     if (err) {
       g_message ("Could not read sync info: %s", err->message);
       g_error_free (err);
@@ -141,16 +142,15 @@ read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
     return;
   }
 
-  node = json_from_string (self->buf, &err);
-  if (!node) {
+  self->info =
+    GST_SYNC_SERVER_INFO (json_gobject_from_data (GST_TYPE_SYNC_SERVER_INFO,
+          self->buf, len, &err));
+
+  if (!self->info) {
     g_warning ("Could not parse JSON: %s", err->message);
     g_error_free (err);
     return;
   }
-
-  self->info = json_boxed_deserialize (GST_TYPE_SYNC_SERVER_INFO, node);
-
-  json_node_unref (node);
 
   g_object_notify (G_OBJECT (self), "sync-info");
 

@@ -36,7 +36,7 @@
 #include <gst/gst.h>
 #include <gst/net/gstnet.h>
 
-#include "sync-server.h"
+#include "sync-server-info.h"
 #include "sync-client.h"
 #include "sync-control-client.h"
 #include "sync-control-tcp-client.h"
@@ -107,7 +107,7 @@ gst_sync_client_dispose (GObject * object)
   self->control_addr = NULL;
 
   if (self->info) {
-    gst_sync_server_info_free (self->info);
+    g_object_unref (self->info);
     self->info = NULL;
   }
 
@@ -129,9 +129,13 @@ set_base_time (GstSyncClient * self)
       GST_CLOCK_TIME_NONE);
 
   GST_DEBUG_OBJECT (self, "Updating base time to: %lu",
-      self->info->base_time + self->info->paused_time + self->seek_offset);
+      gst_sync_server_info_get_base_time (self->info) +
+      gst_sync_server_info_get_paused_time (self->info) +
+      self->seek_offset);
   gst_element_set_base_time (GST_ELEMENT (self->pipeline),
-      self->info->base_time + self->info->paused_time + self->seek_offset);
+      gst_sync_server_info_get_base_time (self->info) +
+      gst_sync_server_info_get_paused_time (self->info) +
+      self->seek_offset);
 }
 
 /* Call with info_lock held */
@@ -139,14 +143,18 @@ static void
 update_pipeline (GstSyncClient * self)
 {
   gboolean is_live;
+  gchar *uri;
 
-  g_object_set (GST_OBJECT (self->pipeline), "uri", self->info->uri, NULL);
-  gst_pipeline_set_latency (self->pipeline, self->info->latency);
+  uri = gst_sync_server_info_get_uri (self->info);
+  g_object_set (GST_OBJECT (self->pipeline), "uri", uri, NULL);
+
+  gst_pipeline_set_latency (self->pipeline,
+      gst_sync_server_info_get_latency (self->info));
 
   switch (gst_element_set_state (GST_ELEMENT (self->pipeline),
         GST_STATE_PAUSED)) {
     case GST_STATE_CHANGE_FAILURE:
-      GST_WARNING_OBJECT (self, "Could not play uri: %s", self->info->uri);
+      GST_WARNING_OBJECT (self, "Could not play uri: %s", uri);
       break;
 
     case GST_STATE_CHANGE_NO_PREROLL:
@@ -164,10 +172,12 @@ update_pipeline (GstSyncClient * self)
 
   /* We need to do PAUSED and PLAYING in separate steps so we don't have a race
    * between us and reading seek_state in bus_cb() */
-  if (!self->info->paused) {
+  if (!gst_sync_server_info_get_paused (self->info)) {
     set_base_time (self);
     gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
   }
+
+  g_free (uri);
 }
 
 static gboolean
@@ -224,7 +234,10 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       g_mutex_lock (&self->info_lock);
 
-      cur_pos = now - self->info->base_time - self->info->paused_time;
+      cur_pos = now -
+        gst_sync_server_info_get_base_time (self->info) -
+        gst_sync_server_info_get_paused_time (self->info);
+
       if (cur_pos > DEFAULT_SEEK_TOLERANCE) {
         /* Let's seek ahead to prevent excessive clipping */
         GST_INFO_OBJECT (self, "Seeking: %lu", cur_pos);
@@ -239,10 +252,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         }
       } else {
         /* For the seek case, the base time will be set after the seek */
-        GST_INFO_OBJECT (self, "Not seeking as %lu - %lu = %lu <= %lu", now,
-            self->info->base_time + self->info->paused_time,
-            now - self->info->base_time - self->info->paused_time,
-            DEFAULT_SEEK_TOLERANCE);
+        GST_INFO_OBJECT (self, "Not seeking as we're within the threshold");
         g_atomic_int_set (&self->seek_state, DONE_SEEK);
       }
 
@@ -297,11 +307,14 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
   if (!self->info) {
     /* First sync info update */
     GstBus *bus;
+    gchar *clock_addr;
 
-    self->info = g_boxed_copy (GST_TYPE_SYNC_SERVER_INFO, info);
+    self->info = info;
 
+    clock_addr = gst_sync_server_info_get_clock_address (self->info);
     self->clock = gst_net_client_clock_new ("sync-server-clock",
-        self->info->clock_addr, self->info->clock_port, 0);
+        clock_addr, gst_sync_server_info_get_clock_port (self->info), 0);
+    g_free (clock_addr);
 
     gst_pipeline_use_clock (self->pipeline, self->clock);
 
@@ -319,30 +332,40 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
     /* Sync info changed, figure out what did. We do not expect the clock
      * parameters or latency to change */
     GstSyncServerInfo *old_info;
+    gchar *old_uri, *uri;
 
     old_info = self->info;
-    self->info = g_boxed_copy (GST_TYPE_SYNC_SERVER_INFO, info);
+    self->info = info;
 
-    if (!g_str_equal (old_info->uri, info->uri)) {
+    old_uri = gst_sync_server_info_get_uri (old_info);
+    uri = gst_sync_server_info_get_uri (self->info);
+
+    if (!g_str_equal (old_uri, uri)) {
       /* URI changed, just reset pipeline completely */
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
       update_pipeline (self);
 
-    } else if (old_info->paused != info->paused) {
+    } else if (gst_sync_server_info_get_paused (old_info) !=
+        gst_sync_server_info_get_paused (self->info)) {
       /* Paused or unpaused */
-      if (!self->info->paused)
+      if (!gst_sync_server_info_get_paused (self->info))
         set_base_time (self);
 
       gst_element_set_state (GST_ELEMENT (self->pipeline),
-          self->info->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
+          gst_sync_server_info_get_paused (self->info) ?
+            GST_STATE_PAUSED :
+            GST_STATE_PLAYING);
 
-    } else if (old_info->base_time != info->base_time) {
+    } else if (gst_sync_server_info_get_base_time (old_info) !=
+        gst_sync_server_info_get_base_time (self->info)) {
       /* Base time changed, just reset pipeline completely */
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
       update_pipeline (self);
     }
 
-    gst_sync_server_info_free (old_info);
+    g_free (old_uri);
+    g_free (uri);
+    g_object_unref (old_info);
   }
 
   g_mutex_unlock (&self->info_lock);
@@ -475,16 +498,25 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 {
   GstSyncClient *self = GST_SYNC_CLIENT (user_data);
   GstSyncServerInfo * info;
+  gchar *clock_addr, *uri;
 
   info = gst_sync_control_client_get_sync_info (self->client);
 
+  clock_addr = gst_sync_server_info_get_clock_address (info);
+  uri = gst_sync_server_info_get_uri (info);
+
   GST_DEBUG_OBJECT (self, "Got sync information:");
-  GST_DEBUG_OBJECT (self, "\tClk: %s:%u", info->clock_addr, info->clock_port);
-  GST_DEBUG_OBJECT (self, "\tURI: %s", info->uri);
-  GST_DEBUG_OBJECT (self, "\tBase time: %lu", info->base_time);
-  GST_DEBUG_OBJECT (self, "\tLatency: %lu", info->latency);
-  GST_DEBUG_OBJECT (self, "\tPaused: %u", info->paused);
-  GST_DEBUG_OBJECT (self, "\tPaused time: %lu", info->paused_time);
+  GST_DEBUG_OBJECT (self, "\tClk: %s:%u", clock_addr,
+      gst_sync_server_info_get_clock_port (info));
+  GST_DEBUG_OBJECT (self, "\tURI: %s", uri);
+  GST_DEBUG_OBJECT (self, "\tBase time: %lu",
+      gst_sync_server_info_get_uri (info));
+  GST_DEBUG_OBJECT (self, "\tLatency: %lu",
+      gst_sync_server_info_get_latency (info));
+  GST_DEBUG_OBJECT (self, "\tPaused: %u",
+      gst_sync_server_info_get_paused (info));
+  GST_DEBUG_OBJECT (self, "\tPaused time: %lu",
+      gst_sync_server_info_get_paused_time (info));
 
   update_sync_info (self, info /* transfers ownership of info */);
 }

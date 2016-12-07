@@ -29,26 +29,6 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (GstSyncServer, gst_sync_server, GST, SYNC_SERVER,
     GObject);
 
-/* Server messages */
-
-typedef struct _GstSyncServerInfo GstSyncServerInfo;
-
-struct _GstSyncServerInfo {
-  gint version;
-  gchar *clock_addr;
-  guint clock_port;
-  gchar *uri;
-  guint64 base_time;
-  guint64 latency;
-  gboolean paused;
-  guint64 paused_time;
-};
-
-#define GST_TYPE_SYNC_SERVER_INFO (gst_sync_server_info_get_type ())
-GType gst_sync_server_info_get_type ();
-void gst_sync_server_info_free (GstSyncServerInfo *info);
-
-/* API */
 GstSyncServer *
 gst_sync_server_new (const gchar * control_addr, gint control_port);
 

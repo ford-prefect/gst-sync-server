@@ -84,7 +84,7 @@ gst_sync_control_client_default_init (GstSyncControlClientInterface * iface)
    * which is fairly easy to (de)serialise as JSON.
    */
   g_object_interface_install_property (iface,
-      g_param_spec_boxed ("sync-info", "Sync info",
+      g_param_spec_object ("sync-info", "Sync info",
         "Sync parameters for clients to use", GST_TYPE_SYNC_SERVER_INFO,
         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 

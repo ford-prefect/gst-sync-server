@@ -18,144 +18,263 @@
  * Boston, MA 02110-1301, USA.
  */
 
+/**
+ * SECTION: gst-sync-server-info
+ * @short_description: Information object sent by #GstSyncServer to
+ *                     #GstSyncClient.
+ *
+ * The specifics of the contents of this object are not essential to users of
+ * the library. This is only exposed so that implementations of
+ * #GstSyncControlServer and #GstSyncControlClient have access to the
+ * information that needs to be sent across the wire.
+ */
 #include <json-glib/json-glib.h>
 
-#include "sync-server.h"
+#include "sync-server-info.h"
 
-void
-gst_sync_server_info_free (GstSyncServerInfo *info)
-{
-  g_boxed_free (GST_TYPE_SYNC_SERVER_INFO, info);
-}
+struct _GstSyncServerInfo {
+  GObject parent;
 
-static gpointer
-_gst_sync_server_info_copy (gpointer from)
-{
-  GstSyncServerInfo *info = (GstSyncServerInfo *) from, *ret;
+  guint64 version;
+  gchar *clock_addr;
+  guint clock_port;
+  gchar *uri;
+  guint64 base_time;
+  guint64 latency;
+  gboolean paused;
+  guint64 paused_time;
+};
 
-  ret = g_new (GstSyncServerInfo, 1);
+struct _GstSyncServerInfoClass {
+  GObjectClass parent;
+};
 
-  ret->version = info->version;
-  ret->clock_addr = g_strdup (info->clock_addr);
-  ret->clock_port = info->clock_port;
-  ret->uri = g_strdup (info->uri);
-  ret->base_time = info->base_time;
-  ret->latency = info->latency;
-  ret->paused = info->paused;
-  ret->paused_time = info->paused_time;
+#define gst_sync_server_info_parent_class parent_class
+G_DEFINE_TYPE (GstSyncServerInfo, gst_sync_server_info, G_TYPE_OBJECT);
 
-  return ret;
-}
+#define DEFAULT_VERSION 1
+
+enum {
+  PROP_0,
+  PROP_VERSION,
+  PROP_CLOCK_ADDRESS,
+  PROP_CLOCK_PORT,
+  PROP_URI,
+  PROP_BASE_TIME,
+  PROP_LATENCY,
+  PROP_PAUSED,
+  PROP_PAUSED_TIME,
+};
 
 static void
-_gst_sync_server_info_free (gpointer boxed)
+gst_sync_server_info_dispose (GObject * object)
 {
-  GstSyncServerInfo *info = (GstSyncServerInfo *) boxed;
+  GstSyncServerInfo *info = GST_SYNC_SERVER_INFO (object);
 
   g_free (info->clock_addr);
   g_free (info->uri);
-
-  g_free (info);
 }
 
-static JsonNode *
-gst_sync_server_info_serialize (gconstpointer boxed)
+static void
+gst_sync_server_info_set_property (GObject * object, guint property_id,
+    const GValue * value, GParamSpec * pspec)
 {
-  GstSyncServerInfo *info = (GstSyncServerInfo *) boxed;
-  JsonObject *object;
-  JsonNode *node;
+  GstSyncServerInfo *info = GST_SYNC_SERVER_INFO (object);
 
-  object = json_object_new ();
+  switch (property_id) {
+    case PROP_VERSION:
+      info->version = g_value_get_uint64 (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_int (node, info->version);
-  json_object_set_member (object, "version", node);
+    case PROP_CLOCK_ADDRESS:
+      g_free (info->clock_addr);
+      info->clock_addr = g_value_dup_string (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_string (node, info->clock_addr);
-  json_object_set_member (object, "clock-addr", node);
+    case PROP_CLOCK_PORT:
+      info->clock_port = g_value_get_uint (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_int (node, info->clock_port);
-  json_object_set_member (object, "clock-port", node);
+    case PROP_URI:
+      g_free (info->uri);
+      info->uri = g_value_dup_string (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_string (node, info->uri);
-  json_object_set_member (object, "uri", node);
+    case PROP_BASE_TIME:
+      info->base_time = g_value_get_uint64 (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_int (node, info->base_time);
-  json_object_set_member (object, "base-time", node);
+    case PROP_LATENCY:
+      info->latency = g_value_get_uint64 (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_int (node, info->latency);
-  json_object_set_member (object, "latency", node);
+    case PROP_PAUSED:
+      info->paused = g_value_get_boolean (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_boolean (node, info->paused);
-  json_object_set_member (object, "paused", node);
+    case PROP_PAUSED_TIME:
+      info->paused_time = g_value_get_uint64 (value);
+      break;
 
-  node = json_node_alloc ();
-  json_node_init_int (node, info->paused_time);
-  json_object_set_member (object, "paused-time", node);
-
-  node = json_node_alloc ();
-  json_node_init_object (node, object);
-  json_object_unref (object);
-
-  return node;
-}
-
-static gpointer
-gst_sync_server_info_deserialize (JsonNode * node)
-{
-  GstSyncServerInfo *info;
-  JsonObject *object;
-
-  if (!JSON_NODE_HOLDS_OBJECT (node))
-    return NULL;
-
-  info = g_new (GstSyncServerInfo, 1);
-
-  object = json_node_get_object (node);
-
-  /* FIXME: do we need to add validatio here? */
-
-  info->version = json_object_get_int_member (object, "version");
-  info->clock_addr =
-    g_strdup (json_object_get_string_member (object, "clock-addr"));
-  info->clock_port = json_object_get_int_member (object, "clock-port");
-  info->uri =
-    g_strdup (json_object_get_string_member (object, "uri"));
-  info->base_time = json_object_get_int_member (object, "base-time");
-  info->latency = json_object_get_int_member (object, "latency");
-  info->paused = json_object_get_boolean_member (object, "paused");
-  info->paused_time = json_object_get_int_member (object, "paused-time");
-
-  return info;
-}
-
-GType
-gst_sync_server_info_get_type ()
-{
-  static GType type = 0;
-
-  if (g_once_init_enter (&type)) {
-    GType tmp;
-
-    tmp =
-      g_boxed_type_register_static (
-        g_intern_static_string ("GstSyncServerInfo"),
-        (GBoxedCopyFunc) _gst_sync_server_info_copy,
-        (GBoxedFreeFunc) _gst_sync_server_info_free);
-
-    json_boxed_register_serialize_func (tmp, JSON_NODE_OBJECT,
-        gst_sync_server_info_serialize);
-    json_boxed_register_deserialize_func (tmp, JSON_NODE_OBJECT,
-        gst_sync_server_info_deserialize);
-
-    g_once_init_leave (&type, tmp);
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
   }
+}
 
-  return type;
+static void
+gst_sync_server_info_get_property (GObject * object, guint property_id,
+    GValue * value, GParamSpec * pspec)
+{
+  GstSyncServerInfo *info = GST_SYNC_SERVER_INFO (object);
+
+  switch (property_id) {
+    case PROP_VERSION:
+      g_value_set_uint64 (value, info->version);
+      break;
+
+    case PROP_CLOCK_ADDRESS:
+      g_value_set_string (value, info->clock_addr);
+      break;
+
+    case PROP_CLOCK_PORT:
+      g_value_set_uint (value, info->clock_port);
+      break;
+
+    case PROP_URI:
+      g_value_set_string (value, info->uri);
+      break;
+
+    case PROP_BASE_TIME:
+      g_value_set_uint64 (value, info->base_time);
+      break;
+
+    case PROP_LATENCY:
+      g_value_set_uint64 (value, info->latency);
+      break;
+
+    case PROP_PAUSED:
+      g_value_set_boolean (value, info->paused);
+      break;
+
+    case PROP_PAUSED_TIME:
+      g_value_set_uint64 (value, info->paused_time);
+      break;
+
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
+gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
+{
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+  object_class->dispose = gst_sync_server_info_dispose;
+  object_class->set_property = gst_sync_server_info_set_property;
+  object_class->get_property = gst_sync_server_info_get_property;
+
+  g_object_class_install_property (object_class, PROP_VERSION,
+      g_param_spec_uint64 ("version", "Version",
+        "Protocol version of the sync information", 0, G_MAXUINT64,
+        DEFAULT_VERSION,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_CLOCK_ADDRESS,
+      g_param_spec_string ("clock-address", "Clock address",
+        "Network address of the clock provider", NULL,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_CLOCK_PORT,
+      g_param_spec_uint ("clock-port", "Clock port",
+        "Network port of the clock provider", 0, 65535, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_URI,
+      g_param_spec_string ("uri", "URI",
+        "The URI to play", NULL,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_BASE_TIME,
+      g_param_spec_uint64 ("base-time", "Base time",
+        "Base time of the GStreamer pipeline (ns)", 0, G_MAXUINT64, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_LATENCY,
+      g_param_spec_uint64 ("latency", "Latency",
+        "Latency of the GStreamer pipeline (ns)", 0, G_MAXUINT64, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_PAUSED,
+      g_param_spec_boolean ("paused", "Paused",
+        "Whether playback is currently paused", FALSE,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_PAUSED_TIME,
+      g_param_spec_uint64 ("paused-time", "Paused time",
+        "Time the pipeline has spent in paused", 0, G_MAXUINT64, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+}
+
+
+static void
+gst_sync_server_info_init (GstSyncServerInfo * info)
+{
+  info->version = DEFAULT_VERSION;
+}
+
+GstSyncServerInfo *
+gst_sync_server_info_new ()
+{
+  return g_object_new (GST_TYPE_SYNC_SERVER_INFO, NULL);
+}
+
+guint64
+gst_sync_server_info_get_version (GstSyncServerInfo * info)
+{
+  return info->version;
+}
+
+gchar *
+gst_sync_server_info_get_clock_address (GstSyncServerInfo * info)
+{
+  return g_strdup (info->clock_addr);
+}
+
+guint
+gst_sync_server_info_get_clock_port (GstSyncServerInfo * info)
+{
+  return info->clock_port;
+}
+
+gchar *
+gst_sync_server_info_get_uri (GstSyncServerInfo * info)
+{
+  return g_strdup (info->uri);
+}
+
+guint64
+gst_sync_server_info_get_base_time (GstSyncServerInfo * info)
+{
+  return info->base_time;
+}
+
+guint64
+gst_sync_server_info_get_latency (GstSyncServerInfo * info)
+{
+  return info->latency;
+}
+
+gboolean
+gst_sync_server_info_get_paused (GstSyncServerInfo * info)
+{
+  return info->paused;
+}
+
+guint64
+gst_sync_server_info_get_paused_time (GstSyncServerInfo * info)
+{
+  return info->paused_time;
 }

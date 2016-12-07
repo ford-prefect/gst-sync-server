@@ -87,9 +87,9 @@ gst_sync_control_tcp_server_set_property (GObject * object, guint property_id,
     case PROP_SYNC_INFO:
       g_rw_lock_writer_lock (&self->info_lock);
       if (self->info)
-        gst_sync_server_info_free (self->info);
+        g_object_unref (self->info);
 
-      self->info = g_value_dup_boxed (value);
+      self->info = g_value_dup_object (value);
       g_rw_lock_writer_unlock (&self->info_lock);
 
       break;
@@ -117,7 +117,7 @@ gst_sync_control_tcp_server_get_property (GObject * object, guint property_id,
 
     case PROP_SYNC_INFO:
       g_rw_lock_reader_lock (&self->info_lock);
-      g_value_set_boxed (value, self->info);
+      g_value_set_object (value, self->info);
       g_rw_lock_reader_unlock (&self->info_lock);
       break;
 
@@ -138,7 +138,7 @@ gst_sync_control_tcp_server_dispose (GObject * object)
   self->addr = NULL;
 
   if (self->info) {
-    gst_sync_server_info_free (self->info);
+    g_object_unref (self->info);
     self->info = NULL;
   }
 
@@ -150,7 +150,6 @@ gst_sync_control_tcp_server_dispose (GObject * object)
 static gboolean
 send_sync_info (GstSyncControlTcpServer * self, GSocket * socket)
 {
-  JsonNode *node;
   gchar *out;
   gsize len;
   GError *err = NULL;
@@ -161,12 +160,8 @@ send_sync_info (GstSyncControlTcpServer * self, GSocket * socket)
     g_rw_lock_reader_unlock (&self->info_lock);
     return FALSE;
   }
-  node = json_boxed_serialize (GST_TYPE_SYNC_SERVER_INFO, self->info);
+  out = json_gobject_to_data (G_OBJECT (self->info), &len);
   g_rw_lock_reader_unlock (&self->info_lock);
-
-  out = json_to_string (node, TRUE);
-  len = strlen (out);
-  json_node_unref (node);
 
   if (g_socket_send (socket, out, len, NULL, &err) != len) {
     if (err) {

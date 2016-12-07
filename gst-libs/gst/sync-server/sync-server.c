@@ -43,6 +43,7 @@
 #include <glib-unix.h>
 
 #include "sync-server.h"
+#include "sync-server-info.h"
 #include "sync-control-server.h"
 #include "sync-control-tcp-server.h"
 
@@ -401,23 +402,27 @@ pad_removed_cb (GstElement * bin, GstPad * pad, gpointer user_data)
   gst_bin_remove (GST_BIN (self->pipeline), sink);
 }
 
-static void
-fill_sync_info (GstSyncServer * self, GstSyncServerInfo * info)
+static GstSyncServerInfo *
+get_sync_info (GstSyncServer * self)
 {
-  /* FIXME: Deal with pausing on live streams */
-  info->version = 1;
+  GstSyncServerInfo *info;
+  guint clock_port;
 
-  info->clock_addr = g_strdup (self->control_addr);
-  g_object_get (self->clock_provider, "port", &info->clock_port, NULL);
+  info = gst_sync_server_info_new ();
 
-  info->uri = g_strdup (self->uri);
+  g_object_get (self->clock_provider, "port", &clock_port, NULL);
 
-  info->base_time = self->base_time;
+  g_object_set (info,
+      "clock-address", self->control_addr,
+      "clock-port", clock_port,
+      "uri", self->uri,
+      "base-time", self->base_time,
+      "latency", self->latency,
+      "paused", self->paused, /* FIXME: Deal with pausing on live streams */
+      "paused-time", self->paused_time,
+      NULL);
 
-  info->latency = self->latency;
-
-  info->paused = self->paused;
-  info->paused_time = self->paused_time;
+  return info;
 }
 
 static gboolean
@@ -448,12 +453,14 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       if ((self->paused && new_state == GST_STATE_PAUSED) ||
           new_state == GST_STATE_PLAYING) {
-        GstSyncServerInfo info;
+        GstSyncServerInfo *info;
 
         /* FIXME: Implement a "ready" signal */
-        fill_sync_info (self, &info);
+        info = get_sync_info (self);
 
-        gst_sync_control_server_set_sync_info (self->server, &info);
+        gst_sync_control_server_set_sync_info (self->server, info);
+
+        g_object_unref (info);
       }
 
       break;
