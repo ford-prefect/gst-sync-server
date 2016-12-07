@@ -5,3 +5,9 @@ gst_sync_server_get_type
 
 #include <gst/sync-server/sync-client.h>
 gst_sync_client_get_type
+
+#include <gst/sync-server/sync-control-server.h>
+gst_sync_control_server_get_type
+
+#include <gst/sync-server/sync-control-client.h>
+gst_sync_control_client_get_type

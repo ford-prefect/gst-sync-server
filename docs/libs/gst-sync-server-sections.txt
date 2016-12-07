@@ -30,3 +30,15 @@ gst_sync_control_server_get_port
 gst_sync_control_server_set_port
 gst_sync_control_server_set_sync_info
 </SECTION>
+
+<SECTION>
+<FILE>gst-sync-control-client</FILE>
+<TITLE>GstSyncControlClient</TITLE>
+
+GstSyncControlClient
+gst_sync_control_client_get_address
+gst_sync_control_client_set_address
+gst_sync_control_client_get_port
+gst_sync_control_client_set_port
+gst_sync_control_client_get_sync_info
+</SECTION>
