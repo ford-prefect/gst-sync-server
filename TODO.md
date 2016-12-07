@@ -1,7 +1,5 @@
 # TODO
 
-- Document API
-
 - Implement features:
   - Playlists
   - Stop
