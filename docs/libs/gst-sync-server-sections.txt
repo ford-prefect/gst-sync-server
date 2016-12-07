@@ -18,3 +18,15 @@ gst_sync_client_new
 gst_sync_client_start
 gst_sync_client_stop
 </SECTION>
+
+<SECTION>
+<FILE>gst-sync-control-server</FILE>
+<TITLE>GstSyncControlServer</TITLE>
+
+GstSyncControlServer
+gst_sync_control_server_get_address
+gst_sync_control_server_set_address
+gst_sync_control_server_get_port
+gst_sync_control_server_set_port
+gst_sync_control_server_set_sync_info
+</SECTION>
