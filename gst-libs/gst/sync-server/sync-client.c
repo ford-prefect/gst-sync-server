@@ -200,7 +200,6 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       if (!self->synchronised)
         break;
 
-      /* FIXME: should have a timeout? */
       if (!gst_clock_wait_for_sync (self->clock, 10 * GST_SECOND)) {
         GST_ERROR_OBJECT (self, "Could not synchronise clock");
         self->synchronised = FALSE;
@@ -483,7 +482,6 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
    * can be configured appropriately for the platform (such as selecting the
    * video sink and setting it up, if required).
    */
-  /* FIXME: allow a pipeline with a child with the "uri" property too */
   g_object_class_install_property (object_class, PROP_PIPELINE,
       g_param_spec_object ("pipeline", "Pipeline",
         "The pipeline for playback (having the URI property)",
