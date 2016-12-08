@@ -75,6 +75,9 @@ struct _GstSyncServerClass {
   GObjectClass parent;
 };
 
+#define GST_SYNC_SERVER_ERROR \
+  (g_quark_from_static_string ("gst-sync-server-error-quark"))
+
 #define gst_sync_server_parent_class parent_class
 G_DEFINE_TYPE (GstSyncServer, gst_sync_server, G_TYPE_OBJECT);
 
@@ -522,7 +525,10 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
 
   if (!server->uri) {
     GST_ERROR_OBJECT (server, "Need a URI before we can start");
-    /* FIXME: Set error */
+    if (error) {
+      *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
+          "Cannot start server without a URI");
+    }
     goto fail;
   }
 
@@ -543,7 +549,10 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
 
   if (server->clock_provider == NULL) {
     GST_ERROR_OBJECT (server, "Could not create net time provider");
-    /* FIXME: Set error */
+    if (error) {
+      *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
+          "Failed to initialise network time provider");
+    }
     goto fail;
   }
 
@@ -552,7 +561,10 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
   uridecodebin = gst_element_factory_make ("uridecodebin", "uridecodebin");
   if (!uridecodebin) {
     GST_ERROR_OBJECT (server, "Could not create uridecodebin");
-    /* FIXME: Set error */
+    if (error) {
+      *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
+          "Failed to instantiate a uridecodebin element");
+    }
     goto fail;
   }
 
@@ -574,7 +586,10 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
   gst_object_unref (bus);
 
   if (!update_pipeline (server)) {
-    /* FIXME: Set error */
+    if (error) {
+      *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
+          "Failed to set up local GStreamer pipeline with URI");
+    }
     goto fail;
   }
 
