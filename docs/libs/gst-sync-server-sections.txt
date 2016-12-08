@@ -6,6 +6,7 @@ GstSyncServer
 gst_sync_server_new
 gst_sync_server_start
 gst_sync_server_stop
+gst_sync_server_set_stopped
 gst_sync_server_set_paused
 </SECTION>
 

@@ -41,6 +41,7 @@ struct _GstSyncServerInfo {
   gchar *uri;
   guint64 base_time;
   guint64 latency;
+  gboolean stopped;
   gboolean paused;
   guint64 paused_time;
 };
@@ -62,6 +63,7 @@ enum {
   PROP_URI,
   PROP_BASE_TIME,
   PROP_LATENCY,
+  PROP_STOPPED,
   PROP_PAUSED,
   PROP_PAUSED_TIME,
 };
@@ -108,6 +110,10 @@ gst_sync_server_info_set_property (GObject * object, guint property_id,
       info->latency = g_value_get_uint64 (value);
       break;
 
+    case PROP_STOPPED:
+      info->stopped = g_value_get_boolean (value);
+      break;
+
     case PROP_PAUSED:
       info->paused = g_value_get_boolean (value);
       break;
@@ -151,6 +157,10 @@ gst_sync_server_info_get_property (GObject * object, guint property_id,
 
     case PROP_LATENCY:
       g_value_set_uint64 (value, info->latency);
+      break;
+
+    case PROP_STOPPED:
+      g_value_set_boolean (value, info->stopped);
       break;
 
     case PROP_PAUSED:
@@ -205,6 +215,11 @@ gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
   g_object_class_install_property (object_class, PROP_LATENCY,
       g_param_spec_uint64 ("latency", "Latency",
         "Latency of the GStreamer pipeline (ns)", 0, G_MAXUINT64, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_STOPPED,
+      g_param_spec_boolean ("stopped", "Stopped",
+        "Whether playback is currently stopped", FALSE,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_PAUSED,
@@ -265,6 +280,12 @@ guint64
 gst_sync_server_info_get_latency (GstSyncServerInfo * info)
 {
   return info->latency;
+}
+
+gboolean
+gst_sync_server_info_get_stopped (GstSyncServerInfo * info)
+{
+  return info->stopped;
 }
 
 gboolean

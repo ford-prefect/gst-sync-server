@@ -73,7 +73,14 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
 
   } else if (g_str_equal (tok[0], "unpause")) {
     gst_sync_server_set_paused (server, FALSE);
+
+  } else if (g_str_equal (tok[0], "stop")) {
+    gst_sync_server_set_stopped (server, TRUE);
+
+  } else if (g_str_equal (tok[0], "unstop")) {
+    gst_sync_server_set_stopped (server, FALSE);
   }
+
 
 done:
   g_free (str);

@@ -34,6 +34,7 @@ gst_sync_server_new (const gchar * control_addr, gint control_port);
 
 gboolean gst_sync_server_start (GstSyncServer * server, GError ** error);
 
+void gst_sync_server_set_stopped (GstSyncServer * server, gboolean stopped);
 void gst_sync_server_set_paused (GstSyncServer * server, gboolean paused);
 
 void gst_sync_server_stop (GstSyncServer * server);

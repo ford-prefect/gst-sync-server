@@ -36,6 +36,7 @@ guint    gst_sync_server_info_get_clock_port (GstSyncServerInfo * info);
 gchar *  gst_sync_server_info_get_uri (GstSyncServerInfo * info);
 guint64  gst_sync_server_info_get_base_time (GstSyncServerInfo * info);
 guint64  gst_sync_server_info_get_latency (GstSyncServerInfo * info);
+gboolean gst_sync_server_info_get_stopped (GstSyncServerInfo * info);
 gboolean gst_sync_server_info_get_paused (GstSyncServerInfo * info);
 guint64  gst_sync_server_info_get_paused_time (GstSyncServerInfo * info);
 

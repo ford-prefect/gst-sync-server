@@ -61,7 +61,8 @@ struct _GstSyncServer {
   gchar *uri;
   GHashTable *fakesinks;
 
-  gboolean started;
+  gboolean server_started;
+  gboolean stopped;
   gboolean paused;
   GstElement *pipeline;
 
@@ -114,7 +115,7 @@ gst_sync_server_cleanup (GstSyncServer * self)
     gst_sync_control_server_stop (self->server);
     g_object_unref (self->server);
     self->server = NULL;
-    self->started = FALSE;
+    self->server_started = FALSE;
   }
 }
 
@@ -123,7 +124,7 @@ gst_sync_server_dispose (GObject * object)
 {
   GstSyncServer *self = GST_SYNC_SERVER (object);
 
-  if (self->started)
+  if (self->server_started)
     gst_sync_server_stop (self);
 
   g_free (self->control_addr);
@@ -144,6 +145,7 @@ static gboolean
 update_pipeline (GstSyncServer * self)
 {
   GstStateChangeReturn ret;
+  GstState new_state;
 
   gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline),
       "uridecodebin::uri", self->uri, NULL);
@@ -151,7 +153,7 @@ update_pipeline (GstSyncServer * self)
   gst_pipeline_set_latency (GST_PIPELINE (self->pipeline),
       self->latency);
 
-  if (!self->paused) {
+  if (!self->stopped && !self->paused) {
     self->base_time = gst_clock_get_time (self->clock);
     self->paused_time = 0;
 
@@ -159,9 +161,14 @@ update_pipeline (GstSyncServer * self)
     gst_element_set_base_time (self->pipeline, self->base_time);
   }
 
-  ret = gst_element_set_state (self->pipeline,
-      self->paused ? GST_STATE_PAUSED : GST_STATE_PLAYING);
+  if (self->stopped)
+    new_state = GST_STATE_NULL;
+  else if (self->paused)
+    new_state = GST_STATE_PAUSED;
+  else
+    new_state = GST_STATE_PLAYING;
 
+  ret = gst_element_set_state (self->pipeline, new_state);
   if (ret == GST_STATE_CHANGE_FAILURE) {
     GST_ERROR_OBJECT (self, "Could not play new URI");
     return FALSE;
@@ -338,7 +345,7 @@ gst_sync_server_init (GstSyncServer * self)
 
   self->uri = NULL;
   self->latency = DEFAULT_LATENCY;
-  self->started = FALSE;
+  self->server_started = FALSE;
   self->paused = FALSE;
   self->paused_time = 0;
   self->last_pause_time = GST_CLOCK_TIME_NONE;
@@ -422,6 +429,7 @@ get_sync_info (GstSyncServer * self)
       "uri", self->uri,
       "base-time", self->base_time,
       "latency", self->latency,
+      "stopped", self->stopped,
       "paused", self->paused, /* FIXME: Deal with pausing on live streams */
       "paused-time", self->paused_time,
       NULL);
@@ -456,6 +464,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
        break;
 
       if ((self->paused && new_state == GST_STATE_PAUSED) ||
+          (self->stopped && new_state == GST_STATE_NULL) ||
           new_state == GST_STATE_PLAYING) {
         GstSyncServerInfo *info;
 
@@ -581,6 +590,7 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
 
   gst_element_set_start_time (server->pipeline, GST_CLOCK_TIME_NONE);
   gst_pipeline_use_clock (GST_PIPELINE (server->pipeline), server->clock);
+  gst_pipeline_set_auto_flush_bus (GST_PIPELINE (server->pipeline), FALSE);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (server->pipeline));
   gst_bus_add_watch (bus, bus_cb, server);
@@ -594,7 +604,7 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
     goto fail;
   }
 
-  server->started = TRUE;
+  server->server_started = TRUE;
 
   return TRUE;
 
@@ -602,6 +612,25 @@ fail:
   gst_sync_server_cleanup (server);
 
   return FALSE;
+}
+
+/**
+ * gst_sync_server_set_stopped:
+ * @server: The #GstSyncServer object
+ * @stopped: Whether the stream should be stopped (or restarted)
+ *
+ * Stops or restarts playback of the current stream on all connected clients.
+ */
+void
+gst_sync_server_set_stopped (GstSyncServer * server, gboolean stopped)
+{
+  GstStateChangeReturn ret;
+
+  if (server->stopped == stopped)
+    return;
+
+  server->stopped = stopped;
+  update_pipeline (server);
 }
 
 /**
@@ -652,7 +681,7 @@ gst_sync_server_set_paused (GstSyncServer * server, gboolean paused)
 void
 gst_sync_server_stop (GstSyncServer * server)
 {
-  if (!server->started)
+  if (!server->server_started)
     return;
 
   gst_sync_server_cleanup (server);

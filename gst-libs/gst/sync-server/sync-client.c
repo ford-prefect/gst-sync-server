@@ -151,6 +151,14 @@ update_pipeline (GstSyncClient * self)
   gst_pipeline_set_latency (self->pipeline,
       gst_sync_server_info_get_latency (self->info));
 
+  if (gst_sync_server_info_get_stopped (self->info)) {
+    /* Just stop the pipeline and we're done */
+    if (gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL) ==
+        GST_STATE_CHANGE_FAILURE)
+      GST_WARNING_OBJECT (self, "Error while stopping pipeline");
+    return;
+  }
+
   switch (gst_element_set_state (GST_ELEMENT (self->pipeline),
         GST_STATE_PAUSED)) {
     case GST_STATE_CHANGE_FAILURE:
@@ -339,8 +347,10 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
     old_uri = gst_sync_server_info_get_uri (old_info);
     uri = gst_sync_server_info_get_uri (self->info);
 
-    if (!g_str_equal (old_uri, uri)) {
-      /* URI changed, just reset pipeline completely */
+    if (gst_sync_server_info_get_stopped (old_info) !=
+        gst_sync_server_info_get_stopped (self->info) ||
+        (!g_str_equal (old_uri, uri))) {
+      /* Pipeline was (un)stopped or URI changed, just reset completely */
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
       update_pipeline (self);
 
@@ -511,6 +521,8 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
       gst_sync_server_info_get_uri (info));
   GST_DEBUG_OBJECT (self, "\tLatency: %lu",
       gst_sync_server_info_get_latency (info));
+  GST_DEBUG_OBJECT (self, "\tStopped: %u",
+      gst_sync_server_info_get_stopped (info));
   GST_DEBUG_OBJECT (self, "\tPaused: %u",
       gst_sync_server_info_get_paused (info));
   GST_DEBUG_OBJECT (self, "\tPaused time: %lu",
