@@ -114,6 +114,7 @@ gst_sync_server_cleanup (GstSyncServer * self)
     gst_sync_control_server_stop (self->server);
     g_object_unref (self->server);
     self->server = NULL;
+    self->started = FALSE;
   }
 }
 
@@ -592,6 +593,8 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
     }
     goto fail;
   }
+
+  server->started = TRUE;
 
   return TRUE;
 
