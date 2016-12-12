@@ -518,7 +518,7 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
       gst_sync_server_info_get_clock_port (info));
   GST_DEBUG_OBJECT (self, "\tURI: %s", uri);
   GST_DEBUG_OBJECT (self, "\tBase time: %lu",
-      gst_sync_server_info_get_uri (info));
+      gst_sync_server_info_get_base_time (info));
   GST_DEBUG_OBJECT (self, "\tLatency: %lu",
       gst_sync_server_info_get_latency (info));
   GST_DEBUG_OBJECT (self, "\tStopped: %u",
