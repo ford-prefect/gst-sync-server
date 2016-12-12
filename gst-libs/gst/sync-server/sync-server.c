@@ -55,7 +55,7 @@ struct _GstSyncServer {
   gint clock_port;
   guint64 latency;
   guint64 base_time; /* time of first transition to PLAYING */
-  guint64 paused_time; /* what to offset base time by */
+  guint64 base_time_offset; /* what to offset base time by */
   guint64 last_pause_time;
 
   gchar *uri;
@@ -155,7 +155,7 @@ update_pipeline (GstSyncServer * self)
 
   if (!self->stopped && !self->paused) {
     self->base_time = gst_clock_get_time (self->clock);
-    self->paused_time = 0;
+    self->base_time_offset = 0;
 
     GST_DEBUG_OBJECT (self, "Setting base time: %lu", self->base_time);
     gst_element_set_base_time (self->pipeline, self->base_time);
@@ -347,7 +347,7 @@ gst_sync_server_init (GstSyncServer * self)
   self->latency = DEFAULT_LATENCY;
   self->server_started = FALSE;
   self->paused = FALSE;
-  self->paused_time = 0;
+  self->base_time_offset = 0;
   self->last_pause_time = GST_CLOCK_TIME_NONE;
 
   self->server = NULL;
@@ -428,10 +428,10 @@ get_sync_info (GstSyncServer * self)
       "clock-port", clock_port,
       "uri", self->uri,
       "base-time", self->base_time,
+      "base-time-offset", self->base_time_offset,
       "latency", self->latency,
       "stopped", self->stopped,
       "paused", self->paused, /* FIXME: Deal with pausing on live streams */
-      "paused-time", self->paused_time,
       NULL);
 
   return info;
@@ -654,15 +654,14 @@ gst_sync_server_set_paused (GstSyncServer * server, gboolean paused)
     server->last_pause_time = gst_clock_get_time (server->clock);
 
   if (!paused) {
-    server->paused_time +=
+    server->base_time_offset +=
       gst_clock_get_time (server->clock) - server->last_pause_time;
     server->last_pause_time = GST_CLOCK_TIME_NONE;
-    GST_DEBUG_OBJECT (server, "Total paused time: %lu", server->paused_time);
 
     GST_DEBUG_OBJECT (server, "Updating base time: %lu",
-        server->base_time + server->paused_time);
+        server->base_time + server->base_time_offset);
     gst_element_set_base_time (server->pipeline,
-        server->base_time + server->paused_time);
+        server->base_time + server->base_time_offset);
   }
 
   ret = gst_element_set_state (server->pipeline,

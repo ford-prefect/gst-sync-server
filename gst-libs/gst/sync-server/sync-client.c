@@ -130,11 +130,11 @@ set_base_time (GstSyncClient * self)
 
   GST_DEBUG_OBJECT (self, "Updating base time to: %lu",
       gst_sync_server_info_get_base_time (self->info) +
-      gst_sync_server_info_get_paused_time (self->info) +
+      gst_sync_server_info_get_base_time_offset (self->info) +
       self->seek_offset);
   gst_element_set_base_time (GST_ELEMENT (self->pipeline),
       gst_sync_server_info_get_base_time (self->info) +
-      gst_sync_server_info_get_paused_time (self->info) +
+      gst_sync_server_info_get_base_time_offset (self->info) +
       self->seek_offset);
 }
 
@@ -243,7 +243,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       cur_pos = now -
         gst_sync_server_info_get_base_time (self->info) -
-        gst_sync_server_info_get_paused_time (self->info);
+        gst_sync_server_info_get_base_time_offset (self->info);
 
       if (cur_pos > DEFAULT_SEEK_TOLERANCE) {
         /* Let's seek ahead to prevent excessive clipping */
@@ -525,8 +525,8 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
       gst_sync_server_info_get_stopped (info));
   GST_DEBUG_OBJECT (self, "\tPaused: %u",
       gst_sync_server_info_get_paused (info));
-  GST_DEBUG_OBJECT (self, "\tPaused time: %lu",
-      gst_sync_server_info_get_paused_time (info));
+  GST_DEBUG_OBJECT (self, "\tBase time offset: %lu",
+      gst_sync_server_info_get_base_time_offset (info));
 
   update_sync_info (self, info /* transfers ownership of info */);
 }

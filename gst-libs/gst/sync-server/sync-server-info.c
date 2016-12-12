@@ -43,7 +43,7 @@ struct _GstSyncServerInfo {
   guint64 latency;
   gboolean stopped;
   gboolean paused;
-  guint64 paused_time;
+  guint64 base_time_offset;
 };
 
 struct _GstSyncServerInfoClass {
@@ -65,7 +65,7 @@ enum {
   PROP_LATENCY,
   PROP_STOPPED,
   PROP_PAUSED,
-  PROP_PAUSED_TIME,
+  PROP_BASE_TIME_OFFSET,
 };
 
 static void
@@ -118,8 +118,8 @@ gst_sync_server_info_set_property (GObject * object, guint property_id,
       info->paused = g_value_get_boolean (value);
       break;
 
-    case PROP_PAUSED_TIME:
-      info->paused_time = g_value_get_uint64 (value);
+    case PROP_BASE_TIME_OFFSET:
+      info->base_time_offset = g_value_get_uint64 (value);
       break;
 
     default:
@@ -167,8 +167,8 @@ gst_sync_server_info_get_property (GObject * object, guint property_id,
       g_value_set_boolean (value, info->paused);
       break;
 
-    case PROP_PAUSED_TIME:
-      g_value_set_uint64 (value, info->paused_time);
+    case PROP_BASE_TIME_OFFSET:
+      g_value_set_uint64 (value, info->base_time_offset);
       break;
 
     default:
@@ -212,6 +212,11 @@ gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
         "Base time of the GStreamer pipeline (ns)", 0, G_MAXUINT64, 0,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (object_class, PROP_BASE_TIME_OFFSET,
+      g_param_spec_uint64 ("base-time-offset", "Base time offset",
+        "How much to offset base time by", 0, G_MAXUINT64, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   g_object_class_install_property (object_class, PROP_LATENCY,
       g_param_spec_uint64 ("latency", "Latency",
         "Latency of the GStreamer pipeline (ns)", 0, G_MAXUINT64, 0,
@@ -225,11 +230,6 @@ gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
   g_object_class_install_property (object_class, PROP_PAUSED,
       g_param_spec_boolean ("paused", "Paused",
         "Whether playback is currently paused", FALSE,
-        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (object_class, PROP_PAUSED_TIME,
-      g_param_spec_uint64 ("paused-time", "Paused time",
-        "Time the pipeline has spent in paused", 0, G_MAXUINT64, 0,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 }
 
@@ -295,7 +295,7 @@ gst_sync_server_info_get_paused (GstSyncServerInfo * info)
 }
 
 guint64
-gst_sync_server_info_get_paused_time (GstSyncServerInfo * info)
+gst_sync_server_info_get_base_time_offset (GstSyncServerInfo * info)
 {
-  return info->paused_time;
+  return info->base_time_offset;
 }
