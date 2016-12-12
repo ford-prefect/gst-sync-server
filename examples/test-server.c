@@ -144,7 +144,7 @@ int main (int argc, char **argv)
   loop = g_main_loop_new (NULL, FALSE);
 
   gst_sync_server_start (server, NULL);
-  g_signal_connect (server, "eos", G_CALLBACK (eos_cb), NULL);
+  g_signal_connect (server, "end-of-stream", G_CALLBACK (eos_cb), NULL);
 
   input = g_io_channel_unix_new (0);
   g_io_channel_set_encoding (input, NULL, NULL);

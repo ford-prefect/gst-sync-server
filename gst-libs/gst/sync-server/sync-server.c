@@ -325,14 +325,14 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /**
-   * GstSyncServer::eos
+   * GstSyncServer::end-of-stream
    *
    * Emitted when the currently playing URI reaches the end of the stream. Can
    * be used, for example, to distribute a new URI to clients via the
    * #GstSyncServer:uri property.
    */
-  g_signal_new_class_handler ("eos", GST_TYPE_SYNC_SERVER, G_SIGNAL_RUN_FIRST,
-      NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
+  g_signal_new_class_handler ("end-of-stream", GST_TYPE_SYNC_SERVER,
+      G_SIGNAL_RUN_FIRST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
 
   GST_DEBUG_CATEGORY_INIT (sync_server_debug, "syncserver", 0, "GstSyncServer");
 }
@@ -484,7 +484,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
        * clients to give us a playbin) */
       if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
         gst_element_set_state (self->pipeline, GST_STATE_NULL);
-        g_signal_emit_by_name (self, "eos", NULL);
+        g_signal_emit_by_name (self, "end-of-stream", NULL);
       }
 
       break;
