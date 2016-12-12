@@ -203,9 +203,7 @@ gst_sync_server_set_property (GObject * object, guint property_id,
       break;
 
     case PROP_URI:
-      if (self->uri)
-        g_free (self->uri);
-
+      g_free (self->uri);
       self->uri = g_value_dup_string (value);
 
       if (self->pipeline) {
