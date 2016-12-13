@@ -59,7 +59,6 @@ struct _GstSyncServer {
   guint64 last_pause_time;
   guint64 last_duration;
 
-  gchar *uri;
   gchar **uris;
   guint64 *durations;
   guint64 n_tracks, current_track;
@@ -94,7 +93,6 @@ enum {
   PROP_CONTROL_SERVER,
   PROP_CONTROL_ADDRESS,
   PROP_CONTROL_PORT,
-  PROP_URI,
   PROP_PLAYLIST,
   PROP_LATENCY,
 };
@@ -145,7 +143,6 @@ gst_sync_server_dispose (GObject * object)
     gst_sync_server_stop (self);
 
   g_free (self->control_addr);
-  g_free (self->uri);
 
   free_playlist (self);
 
@@ -165,9 +162,6 @@ update_pipeline (GstSyncServer * self, gboolean advance)
 {
   GstStateChangeReturn ret;
   GstState new_state;
-  gchar *uri;
-
-  uri = self->uris ? self->uris[self->current_track] : self->uri;
 
   if (advance) {
     if (self->current_track + 1 == self->n_tracks) {
@@ -188,7 +182,7 @@ update_pipeline (GstSyncServer * self, gboolean advance)
   }
 
   gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline), "uridecodebin::uri",
-      uri, NULL);
+      self->uris[self->current_track], NULL);
 
   gst_pipeline_set_latency (GST_PIPELINE (self->pipeline),
       self->latency);
@@ -230,15 +224,8 @@ get_sync_info (GstSyncServer * self)
 
   info = gst_sync_server_info_new ();
 
-  if (self->uris) {
-    playlist = gst_sync_server_playlist_new (self->uris, self->durations,
-        self->n_tracks, self->current_track);
-  } else {
-    gchar *uris[] = { self->uri };
-    guint64 durations[] = { GST_CLOCK_TIME_NONE };
-
-    playlist = gst_sync_server_playlist_new (uris, durations, 1, 0);
-  }
+  playlist = gst_sync_server_playlist_new (self->uris, self->durations,
+      self->n_tracks, self->current_track);
 
   g_object_get (self->clock_provider, "port", &clock_port, NULL);
 
@@ -279,18 +266,6 @@ gst_sync_server_set_property (GObject * object, guint property_id,
 
     case PROP_CONTROL_PORT:
       self->control_port = g_value_get_int (value);
-      break;
-
-    case PROP_URI:
-      g_free (self->uri);
-      self->uri = g_value_dup_string (value);
-
-      if (self->pipeline) {
-        /* We need to update things */
-        gst_element_set_state (self->pipeline, GST_STATE_NULL);
-        update_pipeline (self);
-      }
-
       break;
 
     case PROP_PLAYLIST: {
@@ -361,10 +336,6 @@ gst_sync_server_get_property (GObject * object, guint property_id,
       g_value_set_int (value, self->control_port);
       break;
 
-    case PROP_URI:
-      g_value_set_string (value, self->uri);
-      break;
-
     case PROP_PLAYLIST:
       g_value_set_variant (value, NULL /* FIXME */);
       break;
@@ -423,15 +394,6 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
         65535, DEFAULT_PORT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /**
-   * GstSyncServer:uri:
-   *
-   * The URI that clients should play.
-   */
-  g_object_class_install_property (object_class, PROP_URI,
-      g_param_spec_string ("uri", "URI", "URI to provide clients", NULL,
-        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  /**
    * GstSyncServer:playlist:
    *
    * A #GVariant tuple of the current track index and an array of playlist
@@ -462,9 +424,8 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
   /**
    * GstSyncServer::end-of-stream
    *
-   * Emitted when the currently playing URI reaches the end of the stream. Can
-   * be used, for example, to distribute a new URI to clients via the
-   * #GstSyncServer:uri property.
+   * Emitted when the currently playing URI reaches the end of the stream. This
+   * is called for each stream in the current playlist.
    */
   g_signal_new_class_handler ("end-of-stream", GST_TYPE_SYNC_SERVER,
       G_SIGNAL_RUN_FIRST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -478,7 +439,6 @@ gst_sync_server_init (GstSyncServer * self)
   self->control_addr = NULL;
   self->control_port = DEFAULT_PORT;
 
-  self->uri = NULL;
   self->n_tracks = 0;
   self->current_track = 0;
   self->uris = NULL;
@@ -655,8 +615,8 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
 
   server->clock = gst_system_clock_obtain ();
 
-  if (!server->uri && !server->n_tracks) {
-    GST_ERROR_OBJECT (server, "Need a URI before we can start");
+  if (!server->n_tracks) {
+    GST_ERROR_OBJECT (server, "Need a playlist before we can start");
     if (error) {
       *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
           "Cannot start server without a URI");

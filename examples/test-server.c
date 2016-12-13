@@ -32,7 +32,6 @@
 
 #define MAX_TRACKS 1000
 
-static gchar *uri = NULL;
 static gchar *uris[MAX_TRACKS];
 static guint64 durations[MAX_TRACKS];
 static guint64 n_tracks;
@@ -99,18 +98,7 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
   g_strstrip (str);
   tok = g_strsplit (str, " ", 2);
 
-  if (g_str_equal (tok[0], "uri")) {
-    if (tok[1] == NULL || tok[2] != NULL) {
-      g_message ("Invalid input: Use 'uri scheme:///path'");
-      goto done;
-    }
-
-    g_free (uri);
-    uri = g_strdup (tok[1]);
-
-    g_object_set (server, "uri", uri, NULL);
-
-  } else if (g_str_equal (tok[0], "pause")) {
+  if (g_str_equal (tok[0], "pause")) {
     gst_sync_server_set_paused (server, TRUE);
 
   } else if (g_str_equal (tok[0], "unpause")) {
@@ -133,7 +121,6 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
 
     g_object_set (server, "playlist",
         gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
-    g_object_set (server, "uri", NULL, NULL);
   }
 
 done:
@@ -147,8 +134,7 @@ static void
 eos_cb (GstSyncServer * server, gpointer user_data)
 {
   /* Restart current media in a loop */
-  g_print ("Got EOS, looping media\n");
-  g_object_set (server, "uri", uri, NULL);
+  g_print ("Got EOS");
 }
 
 int main (int argc, char **argv)
@@ -160,8 +146,6 @@ int main (int argc, char **argv)
   static gchar *playlist_path = NULL;
   static GOptionEntry entries[] =
   {
-    { "uri", 'u', 0, G_OPTION_ARG_STRING, &uri, "URI to send to clients",
-      "URI" },
     { "playlist", 'f', 0, G_OPTION_ARG_STRING, &playlist_path,
       "Path to playlist file", "PLAYLIST" },
     { "address", 'a', 0, G_OPTION_ARG_STRING, &addr, "Address to listen on",
@@ -184,7 +168,7 @@ int main (int argc, char **argv)
 
   g_option_context_free (ctx);
 
-  if (!uri && !playlist_path) {
+  if (!playlist_path) {
     g_print ("You must specify a URI or playlist path\n");
     return -1;
   }
@@ -194,14 +178,11 @@ int main (int argc, char **argv)
 
   server = gst_sync_server_new (addr, port);
 
-  if (playlist_path) {
-    if (!read_playlist_file (playlist_path))
-      return -1;
+  if (!read_playlist_file (playlist_path))
+    return -1;
 
-    g_object_set (server, "playlist",
-        gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
-  } else
-    g_object_set (server, "uri", uri, NULL);
+  g_object_set (server, "playlist",
+      gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
 
   if (latency)
     g_object_set (server, "latency", latency, NULL);
@@ -226,6 +207,5 @@ int main (int argc, char **argv)
   g_io_channel_unref (input);
 
   g_free (playlist_path);
-  g_free (uri);
   g_free (addr);
 }
