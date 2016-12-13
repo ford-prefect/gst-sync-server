@@ -65,6 +65,8 @@ struct _GstSyncClient {
   /* See bus_cb() for why this needs to be atomic */
   volatile int seek_state;
   GstClockTime seek_offset;
+
+  guint64 last_duration;
 };
 
 struct _GstSyncClientClass {
@@ -128,9 +130,9 @@ set_base_time (GstSyncClient * self)
   gst_element_set_start_time (GST_ELEMENT (self->pipeline),
       GST_CLOCK_TIME_NONE);
 
-  GST_DEBUG_OBJECT (self, "Updating base time to: %lu",
-      gst_sync_server_info_get_base_time (self->info) +
-      gst_sync_server_info_get_base_time_offset (self->info) +
+  GST_DEBUG_OBJECT (self, "Updating base time to: %lu + %lu + %lu",
+      gst_sync_server_info_get_base_time (self->info),
+      gst_sync_server_info_get_base_time_offset (self->info),
       self->seek_offset);
   gst_element_set_base_time (GST_ELEMENT (self->pipeline),
       gst_sync_server_info_get_base_time (self->info) +
@@ -140,13 +142,51 @@ set_base_time (GstSyncClient * self)
 
 /* Call with info_lock held */
 static void
-update_pipeline (GstSyncClient * self)
+update_pipeline (GstSyncClient * self, gboolean advance)
 {
   gboolean is_live;
-  gchar *uri;
+  gchar *uri, **uris;
+  guint64 current_track, n_tracks, *durations, base_time_offset;
+  GVariant *playlist;
 
-  uri = gst_sync_server_info_get_uri (self->info);
+  playlist = gst_sync_server_info_get_playlist (self->info);
+  gst_sync_server_playlist_get_tracks (playlist, &uris, &durations, &n_tracks);
+  current_track = gst_sync_server_playlist_get_current_track (playlist);
+  g_variant_unref (playlist);
+
+  if (advance) {
+    if (current_track + 1 == n_tracks) {
+      /* We're done with all the tracks */
+      return;
+    }
+
+    base_time_offset = gst_sync_server_info_get_base_time_offset (self->info);
+
+    if (durations[current_track] != GST_CLOCK_TIME_NONE)
+      base_time_offset += durations[current_track];
+    else if (self->last_duration != GST_CLOCK_TIME_NONE)
+      base_time_offset += self->last_duration;
+    else {
+      /* If we don't know what the duration to skip forwards by is, wait for a
+       * reset from the server*/
+      return;
+    }
+
+    current_track++;
+    playlist = gst_sync_server_info_get_playlist (self->info);
+    playlist =
+      gst_sync_server_playlist_set_current_track (playlist, current_track);
+
+    g_object_set (self->info,
+        "playlist", playlist,
+        "base-time-offset", base_time_offset,
+        NULL);
+  }
+
+  uri = uris[current_track];
   g_object_set (GST_OBJECT (self->pipeline), "uri", uri, NULL);
+
+  gst_sync_server_playlist_free_tracks (uris, durations, n_tracks);
 
   gst_pipeline_set_latency (self->pipeline,
       gst_sync_server_info_get_latency (self->info));
@@ -184,8 +224,6 @@ update_pipeline (GstSyncClient * self)
     set_base_time (self);
     gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_PLAYING);
   }
-
-  g_free (uri);
 }
 
 static gboolean
@@ -217,7 +255,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       GST_INFO_OBJECT (self, "Clock is synchronised, starting playback");
 
       g_mutex_lock (&self->info_lock);
-      update_pipeline (self);
+      update_pipeline (self, FALSE);
       g_mutex_unlock (&self->info_lock);
 
       break;
@@ -265,6 +303,9 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       g_mutex_unlock (&self->info_lock);
 
+      gst_element_query_duration (GST_ELEMENT (self->pipeline),
+          GST_FORMAT_TIME, &self->last_duration);
+
       break;
     }
 
@@ -293,11 +334,24 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       break;
     }
 
-    case GST_MESSAGE_EOS:
-      /* Just wait until we get further instructions from the server */
-      if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline))
-        gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
+    case GST_MESSAGE_EOS: {
+      guint64 next_track, n_tracks;
+      GVariant *playlist;
+
+      if (GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))
+        break;
+
+      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
+
+      playlist = gst_sync_server_info_get_playlist (self->info);
+      gst_sync_server_playlist_get_tracks (playlist, NULL, NULL, &n_tracks);
+      next_track = gst_sync_server_playlist_get_current_track (playlist) + 1;
+
+      /* FIXME: added a stream start delay here */
+      update_pipeline (self, TRUE);
+
       break;
+    }
 
     default:
       break;
@@ -339,24 +393,45 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
     /* Sync info changed, figure out what did. We do not expect the clock
      * parameters or latency to change */
     GstSyncServerInfo *old_info;
-    gchar *old_uri, *uri;
+    GVariant *old_playlist, *new_playlist;
+    guint64 old_track, new_track;
 
     old_info = self->info;
     self->info = info;
 
-    old_uri = gst_sync_server_info_get_uri (old_info);
-    uri = gst_sync_server_info_get_uri (self->info);
+    old_playlist = gst_sync_server_info_get_playlist (old_info);
+    new_playlist = gst_sync_server_info_get_playlist (self->info);
 
-    if (gst_sync_server_info_get_stopped (old_info) !=
-        gst_sync_server_info_get_stopped (self->info) ||
-        (!g_str_equal (old_uri, uri))) {
-      /* Pipeline was (un)stopped or URI changed, just reset completely */
+    /* We don't really care about changes to the playlist itself. What we want
+     * to check is whether the current track has changed. This means that the
+     * server can add/remove files from the playlist without affecting the
+     * currently playing track. */
+    old_track = gst_sync_server_playlist_get_current_track(old_playlist);
+    new_track = gst_sync_server_playlist_get_current_track(new_playlist);
+
+    g_variant_unref (old_playlist);
+    g_variant_unref (new_playlist);
+
+    if ((gst_sync_server_info_get_stopped (old_info) !=
+          gst_sync_server_info_get_stopped (self->info))) {
+      GST_INFO_OBJECT (self, "Info change: %sstopped",
+          gst_sync_server_info_get_stopped (self->info) ? "" : "un");
+
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
-      update_pipeline (self);
+      update_pipeline (self, FALSE);
+
+    } else if (old_track != new_track) {
+      GST_INFO_OBJECT (self, "Info change: track# %lu -> %lu", old_track,
+          new_track);
+
+      gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
+      update_pipeline (self, FALSE);
 
     } else if (gst_sync_server_info_get_paused (old_info) !=
         gst_sync_server_info_get_paused (self->info)) {
-      /* Paused or unpaused */
+      GST_INFO_OBJECT (self, "Info change: %spaused",
+          gst_sync_server_info_get_paused (self->info) ? "" : "un");
+
       if (!gst_sync_server_info_get_paused (self->info))
         set_base_time (self);
 
@@ -367,13 +442,14 @@ update_sync_info (GstSyncClient * self, GstSyncServerInfo * info)
 
     } else if (gst_sync_server_info_get_base_time (old_info) !=
         gst_sync_server_info_get_base_time (self->info)) {
-      /* Base time changed, just reset pipeline completely */
+      GST_INFO_OBJECT (self, "Info change: base time %lu -> %lu",
+          gst_sync_server_info_get_base_time (old_info),
+          gst_sync_server_info_get_base_time (self->info));
+
       gst_element_set_state (GST_ELEMENT (self->pipeline), GST_STATE_NULL);
-      update_pipeline (self);
+      update_pipeline (self, FALSE);
     }
 
-    g_free (old_uri);
-    g_free (uri);
     g_object_unref (old_info);
   }
 
@@ -505,18 +581,21 @@ static void
 sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
 {
   GstSyncClient *self = GST_SYNC_CLIENT (user_data);
-  GstSyncServerInfo * info;
-  gchar *clock_addr, *uri;
+  GstSyncServerInfo *info;
+  gchar *clock_addr, *playlist_str;
+  GVariant *playlist;
+  int i;
 
   info = gst_sync_control_client_get_sync_info (self->client);
 
   clock_addr = gst_sync_server_info_get_clock_address (info);
-  uri = gst_sync_server_info_get_uri (info);
+  playlist = gst_sync_server_info_get_playlist (info);
+  playlist_str = g_variant_print (playlist, FALSE);
 
   GST_DEBUG_OBJECT (self, "Got sync information:");
   GST_DEBUG_OBJECT (self, "\tClk: %s:%u", clock_addr,
       gst_sync_server_info_get_clock_port (info));
-  GST_DEBUG_OBJECT (self, "\tURI: %s", uri);
+  GST_DEBUG_OBJECT (self, "\tPlaylist: %s", playlist_str);
   GST_DEBUG_OBJECT (self, "\tBase time: %lu",
       gst_sync_server_info_get_base_time (info));
   GST_DEBUG_OBJECT (self, "\tLatency: %lu",
@@ -527,6 +606,9 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
       gst_sync_server_info_get_paused (info));
   GST_DEBUG_OBJECT (self, "\tBase time offset: %lu",
       gst_sync_server_info_get_base_time_offset (info));
+
+  g_free (playlist_str);
+  g_variant_unref (playlist);
 
   update_sync_info (self, info /* transfers ownership of info */);
 }

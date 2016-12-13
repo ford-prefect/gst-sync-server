@@ -30,15 +30,15 @@ G_DECLARE_FINAL_TYPE (GstSyncServerInfo, gst_sync_server_info, GST,
     SYNC_SERVER_INFO, GObject);
 
 GstSyncServerInfo * gst_sync_server_info_new ();
-guint64  gst_sync_server_info_get_version (GstSyncServerInfo * info);
-gchar *  gst_sync_server_info_get_clock_address (GstSyncServerInfo * info);
-guint    gst_sync_server_info_get_clock_port (GstSyncServerInfo * info);
-gchar *  gst_sync_server_info_get_uri (GstSyncServerInfo * info);
-guint64  gst_sync_server_info_get_base_time (GstSyncServerInfo * info);
-guint64  gst_sync_server_info_get_latency (GstSyncServerInfo * info);
-gboolean gst_sync_server_info_get_stopped (GstSyncServerInfo * info);
-gboolean gst_sync_server_info_get_paused (GstSyncServerInfo * info);
-guint64  gst_sync_server_info_get_base_time_offset (GstSyncServerInfo * info);
+guint64    gst_sync_server_info_get_version (GstSyncServerInfo * info);
+gchar *    gst_sync_server_info_get_clock_address (GstSyncServerInfo * info);
+guint      gst_sync_server_info_get_clock_port (GstSyncServerInfo * info);
+GVariant * gst_sync_server_info_get_playlist (GstSyncServerInfo * info);
+guint64    gst_sync_server_info_get_base_time (GstSyncServerInfo * info);
+guint64    gst_sync_server_info_get_latency (GstSyncServerInfo * info);
+gboolean   gst_sync_server_info_get_stopped (GstSyncServerInfo * info);
+gboolean   gst_sync_server_info_get_paused (GstSyncServerInfo * info);
+guint64    gst_sync_server_info_get_base_time_offset (GstSyncServerInfo * info);
 
 G_END_DECLS
 

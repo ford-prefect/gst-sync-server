@@ -2,12 +2,21 @@
 <FILE>gst-sync-server</FILE>
 <TITLE>GstSyncServer</TITLE>
 
+<SUBSECTION>
 GstSyncServer
 gst_sync_server_new
 gst_sync_server_start
 gst_sync_server_stop
 gst_sync_server_set_stopped
 gst_sync_server_set_paused
+
+<SUBSECTION>
+gst_sync_server_playlist_new
+gst_sync_server_playlist_set_tracks
+gst_sync_server_playlist_set_current_track
+gst_sync_server_playlist_get_tracks
+gst_sync_server_playlist_free_tracks
+gst_sync_server_playlist_get_current_track
 </SECTION>
 
 <SECTION>
@@ -53,7 +62,7 @@ gst_sync_server_info_new
 gst_sync_server_info_get_version
 gst_sync_server_info_get_clock_address
 gst_sync_server_info_get_clock_port
-gst_sync_server_info_get_uri
+gst_sync_server_info_get_playlist
 gst_sync_server_info_get_base_time
 gst_sync_server_info_get_base_time_offset
 gst_sync_server_info_get_latency

@@ -57,8 +57,12 @@ struct _GstSyncServer {
   guint64 base_time; /* time of first transition to PLAYING */
   guint64 base_time_offset; /* what to offset base time by */
   guint64 last_pause_time;
+  guint64 last_duration;
 
   gchar *uri;
+  gchar **uris;
+  guint64 *durations;
+  guint64 n_tracks, current_track;
   GHashTable *fakesinks;
 
   gboolean server_started;
@@ -91,11 +95,24 @@ enum {
   PROP_CONTROL_ADDRESS,
   PROP_CONTROL_PORT,
   PROP_URI,
+  PROP_PLAYLIST,
   PROP_LATENCY,
 };
 
 #define DEFAULT_PORT 0
 #define DEFAULT_LATENCY 300 * GST_MSECOND
+
+static void
+free_playlist (GstSyncServer * self)
+{
+  gst_sync_server_playlist_free_tracks (self->uris, self->durations,
+      self->n_tracks);
+
+  self->n_tracks = 0;
+  self->current_track = 0;
+  self->uris = NULL;
+  self->durations = NULL;
+}
 
 static void
 gst_sync_server_cleanup (GstSyncServer * self)
@@ -130,6 +147,8 @@ gst_sync_server_dispose (GObject * object)
   g_free (self->control_addr);
   g_free (self->uri);
 
+  free_playlist (self);
+
   if (self->fakesinks) {
     g_hash_table_unref (self->fakesinks);
     self->fakesinks = NULL;
@@ -142,23 +161,48 @@ gst_sync_server_dispose (GObject * object)
 }
 
 static gboolean
-update_pipeline (GstSyncServer * self)
+update_pipeline (GstSyncServer * self, gboolean advance)
 {
   GstStateChangeReturn ret;
   GstState new_state;
+  gchar *uri;
 
-  gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline),
-      "uridecodebin::uri", self->uri, NULL);
+  uri = self->uris ? self->uris[self->current_track] : self->uri;
+
+  if (advance) {
+    if (self->current_track + 1 == self->n_tracks) {
+      /* We're done with all the tracks */
+      return TRUE;
+    }
+
+    if (self->durations[self->current_track] != GST_CLOCK_TIME_NONE)
+      self->base_time_offset += self->durations[self->current_track];
+    else if (self->last_duration != GST_CLOCK_TIME_NONE)
+      self->base_time_offset += self->last_duration;
+    else {
+      /* If we don't know what the duration to skip forwards by is, reset */
+      advance = FALSE;
+    }
+
+    self->current_track++;
+  }
+
+  gst_child_proxy_set (GST_CHILD_PROXY (self->pipeline), "uridecodebin::uri",
+      uri, NULL);
 
   gst_pipeline_set_latency (GST_PIPELINE (self->pipeline),
       self->latency);
 
   if (!self->stopped && !self->paused) {
-    self->base_time = gst_clock_get_time (self->clock);
-    self->base_time_offset = 0;
+    if (!advance) {
+      self->base_time = gst_clock_get_time (self->clock);
+      self->base_time_offset = 0;
+    }
 
-    GST_DEBUG_OBJECT (self, "Setting base time: %lu", self->base_time);
-    gst_element_set_base_time (self->pipeline, self->base_time);
+    GST_DEBUG_OBJECT (self, "Setting base time: %lu + %lu", self->base_time,
+        self->base_time_offset);
+    gst_element_set_base_time (self->pipeline,
+        self->base_time + self->base_time_offset);
   }
 
   if (self->stopped)
@@ -175,6 +219,41 @@ update_pipeline (GstSyncServer * self)
   }
 
   return TRUE;
+}
+
+static GstSyncServerInfo *
+get_sync_info (GstSyncServer * self)
+{
+  GstSyncServerInfo *info;
+  guint clock_port;
+  GVariant *playlist;
+
+  info = gst_sync_server_info_new ();
+
+  if (self->uris) {
+    playlist = gst_sync_server_playlist_new (self->uris, self->durations,
+        self->n_tracks, self->current_track);
+  } else {
+    gchar *uris[] = { self->uri };
+    guint64 durations[] = { GST_CLOCK_TIME_NONE };
+
+    playlist = gst_sync_server_playlist_new (uris, durations, 1, 0);
+  }
+
+  g_object_get (self->clock_provider, "port", &clock_port, NULL);
+
+  g_object_set (info,
+      "clock-address", self->control_addr,
+      "clock-port", clock_port,
+      "playlist", playlist, /* Takes ownership of the floating ref */
+      "base-time", self->base_time,
+      "base-time-offset", self->base_time_offset,
+      "latency", self->latency,
+      "stopped", self->stopped,
+      "paused", self->paused, /* FIXME: Deal with pausing on live streams */
+      NULL);
+
+  return info;
 }
 
 static void
@@ -214,6 +293,44 @@ gst_sync_server_set_property (GObject * object, guint property_id,
 
       break;
 
+    case PROP_PLAYLIST: {
+      gchar **new_uris;
+      guint64 *new_durations, new_current_track, new_n_tracks;
+      GVariant *playlist;
+      int i;
+
+      playlist = g_value_get_variant (value);
+      gst_sync_server_playlist_get_tracks (playlist, &new_uris, &new_durations,
+          &new_n_tracks);
+      new_current_track =
+        gst_sync_server_playlist_get_current_track (playlist);
+
+      if (self->pipeline) {
+        if (self->n_tracks != 0 &&
+            self->current_track != new_current_track) {
+          /* We need to update things */
+          gst_element_set_state (self->pipeline, GST_STATE_NULL);
+          update_pipeline (self, FALSE);
+        } else {
+          GstSyncServerInfo *info;
+          info = get_sync_info (self);
+          gst_sync_control_server_set_sync_info (self->server,
+              get_sync_info (self));
+          g_object_unref (info);
+        }
+      }
+
+      gst_sync_server_playlist_free_tracks (self->uris, self->durations,
+          self->n_tracks);
+
+      self->n_tracks = new_n_tracks;
+      self->current_track = new_current_track;
+      self->uris = new_uris;
+      self->durations = new_durations;
+
+      break;
+    }
+
     case PROP_LATENCY:
       self->latency = g_value_get_uint64 (value);
       /* We don't distribute this immediately as it will cause a glitch */
@@ -246,6 +363,10 @@ gst_sync_server_get_property (GObject * object, guint property_id,
 
     case PROP_URI:
       g_value_set_string (value, self->uri);
+      break;
+
+    case PROP_PLAYLIST:
+      g_value_set_variant (value, NULL /* FIXME */);
       break;
 
     case PROP_LATENCY:
@@ -311,6 +432,22 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /**
+   * GstSyncServer:playlist:
+   *
+   * A #GVariant tuple of the current track index and an array of playlist
+   * entries. Each playlist entry, in turn, is a tuple of a URI and its
+   * duration. Unknown durations can be set to 0, which might cause a small
+   * (network-dependent) delay in swiching tracks.
+   * 
+   * See gst_sync_server_playlist_new() and related functions for easy
+   * manipulation of these playlists.
+   */
+  g_object_class_install_property (object_class, PROP_PLAYLIST,
+      g_param_spec_variant ("playlist", "Playlist", "Playlist to send clients",
+        GST_TYPE_SYNC_SERVER_PLAYLIST, NULL,
+        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  /**
    * GstSyncServer:latency:
    *
    * The pipeline latency that clients should use. This should be large enough
@@ -342,6 +479,10 @@ gst_sync_server_init (GstSyncServer * self)
   self->control_port = DEFAULT_PORT;
 
   self->uri = NULL;
+  self->n_tracks = 0;
+  self->current_track = 0;
+  self->uris = NULL;
+  self->durations = NULL;
   self->latency = DEFAULT_LATENCY;
   self->server_started = FALSE;
   self->paused = FALSE;
@@ -411,30 +552,6 @@ pad_removed_cb (GstElement * bin, GstPad * pad, gpointer user_data)
   gst_bin_remove (GST_BIN (self->pipeline), sink);
 }
 
-static GstSyncServerInfo *
-get_sync_info (GstSyncServer * self)
-{
-  GstSyncServerInfo *info;
-  guint clock_port;
-
-  info = gst_sync_server_info_new ();
-
-  g_object_get (self->clock_provider, "port", &clock_port, NULL);
-
-  g_object_set (info,
-      "clock-address", self->control_addr,
-      "clock-port", clock_port,
-      "uri", self->uri,
-      "base-time", self->base_time,
-      "base-time-offset", self->base_time_offset,
-      "latency", self->latency,
-      "stopped", self->stopped,
-      "paused", self->paused, /* FIXME: Deal with pausing on live streams */
-      NULL);
-
-  return info;
-}
-
 static gboolean
 bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 {
@@ -474,6 +591,11 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         g_object_unref (info);
       }
 
+      if (new_state == GST_STATE_PLAYING) {
+        gst_element_query_duration (self->pipeline, GST_FORMAT_TIME,
+            &self->last_duration);
+      }
+
       break;
     }
 
@@ -483,6 +605,8 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
         gst_element_set_state (self->pipeline, GST_STATE_NULL);
         g_signal_emit_by_name (self, "end-of-stream", NULL);
+
+        update_pipeline (self, TRUE);
       }
 
       break;
@@ -531,7 +655,7 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
 
   server->clock = gst_system_clock_obtain ();
 
-  if (!server->uri) {
+  if (!server->uri && !server->n_tracks) {
     GST_ERROR_OBJECT (server, "Need a URI before we can start");
     if (error) {
       *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
@@ -594,7 +718,7 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
   gst_bus_add_watch (bus, bus_cb, server);
   gst_object_unref (bus);
 
-  if (!update_pipeline (server)) {
+  if (!update_pipeline (server, FALSE)) {
     if (error) {
       *error = g_error_new (GST_SYNC_SERVER_ERROR, 0,
           "Failed to set up local GStreamer pipeline with URI");
@@ -628,7 +752,7 @@ gst_sync_server_set_stopped (GstSyncServer * server, gboolean stopped)
     return;
 
   server->stopped = stopped;
-  update_pipeline (server);
+  update_pipeline (server, FALSE);
 }
 
 /**
@@ -682,4 +806,186 @@ gst_sync_server_stop (GstSyncServer * server)
     return;
 
   gst_sync_server_cleanup (server);
+}
+
+/**
+ * gst_sync_server_playlist_get_tracks:
+ * @playlist: The playlist
+ * @uris: (out callee-allocates) (array length=n_tracks): A list of string URIs
+ *        representing the playlist
+ * @durations: (out callee-allocates) (array length=n_tracks): A list of
+ *        durations corresponding to each URI in @uris (set to
+ *        #GST_CLOCK_TIME_NONE if duration for a stream is unknown)
+ * @n_tracks: (out caller-allocates): The number of tracks returned in @uris
+ *        and @durations.
+ *
+ * Returns the set of tracks and their corresponding durations, if available.
+ * Use gst_sync_server_playlist_free_tracks() to free @uris and @durations.
+ */
+void
+gst_sync_server_playlist_get_tracks (GVariant * playlist, gchar *** uris,
+    guint64 ** durations, guint64 * n_tracks)
+{
+  GVariantIter *iter;
+  gchar *uri;
+  guint64 duration;
+  int i;
+
+  g_variant_get_child (playlist, 1, "a(st)", &iter);
+
+  if (n_tracks)
+    *n_tracks = g_variant_iter_n_children (iter);
+  if (uris)
+    *uris = g_new0 (gchar *, *n_tracks);
+  if (durations)
+    *durations = g_new0 (guint64, *n_tracks);
+
+  for (i = 0; g_variant_iter_next (iter, "(st)", &uri, &duration); i++) {
+    if (uris)
+      (*uris)[i] = uri;
+    if (durations)
+      (*durations)[i] = duration;
+  }
+}
+
+/**
+ * gst_sync_server_playlist_free_tracks:
+ * @uris: (array length=n_tracks): A list of string URIs representing the
+ *        playlist
+ * @durations: (array length=n_tracks): A list of durations corresponding to
+ *             each URI
+ * @n_tracks: The number of tracks in @uris and @durations.
+ *
+ * Frees the URIs and durations (allocated by
+ * gst_sync_server_playlist_get_tracks().
+ */
+void
+gst_sync_server_playlist_free_tracks (gchar ** uris, guint64 * durations,
+  guint64 n_tracks)
+{
+  int i;
+
+  for (i = 0; i < n_tracks; i++)
+    g_free (uris[i]);
+
+  g_free (uris);
+  g_free (durations);
+}
+
+/**
+ * gst_sync_server_playlist_get_current_track:
+ * @playlist: The playlist
+ *
+ * Returns: The currently streaming track
+ */
+guint64
+gst_sync_server_playlist_get_current_track (GVariant * playlist)
+{
+  guint64 current_track;
+
+  g_variant_get_child (playlist, 0, "t", &current_track);
+
+  return current_track;
+}
+
+static GVariant *
+make_tracks (gchar ** uris, guint64 * durations,
+    guint64 n_tracks)
+{
+  GVariantBuilder tracks;
+  int i;
+
+  g_variant_builder_init (&tracks, G_VARIANT_TYPE ("a(st)"));
+
+  for (i = 0; i < n_tracks; i++)
+    g_variant_builder_add (&tracks, "(st)", uris[i], durations[i]);
+
+  return g_variant_builder_end (&tracks);
+}
+
+/**
+ * gst_sync_server_playlist_new:
+ * @uris: (array length=n_tracks): A list of string URIs representing the
+ *        playlist
+ * @durations: (array length=n_tracks): A list of durations corresponding to
+ *             each URI (set to GST_CLOCK_TIME_NONE if unknown)
+ * @n_tracks: The number of tracks in @uris and @durations.
+ * @current_track: The current track to play
+ *
+ * Creates a playlist object from the given uris, durations and current track.
+ *
+ * Returns: The playlist as a #GVariant
+ */
+GVariant *
+gst_sync_server_playlist_new (gchar ** uris,
+    guint64 * durations, guint64 n_tracks, guint64 current_track)
+{
+  GVariantBuilder new_playlist;
+
+  g_variant_builder_init (&new_playlist, GST_TYPE_SYNC_SERVER_PLAYLIST);
+
+  g_variant_builder_add (&new_playlist, "t", current_track);
+  g_variant_builder_add_value (&new_playlist,
+      make_tracks (uris, durations, n_tracks));
+
+  return g_variant_builder_end (&new_playlist);
+}
+
+/**
+ * gst_sync_server_playlist_set_tracks:
+ * @playlist: (transfer full): The playlist
+ * @uris: (array length=n_tracks): A list of string URIs representing the
+ *        playlist
+ * @durations: (array length=n_tracks): A list of durations corresponding to
+ *             each URI (set to GST_CLOCK_TIME_NONE if unknown)
+ * @n_tracks: The number of tracks in @uris and @durations.
+ *
+ * Changes the track list in the given playlist and returns a new playlist.
+ *
+ * Returns: (transfer full): The new playlist as a #GVariant
+ */
+GVariant *
+gst_sync_server_playlist_set_tracks (GVariant * playlist, gchar ** uris,
+    guint64 * durations, guint64 n_tracks)
+{
+  GVariantBuilder new_playlist;
+
+  g_variant_builder_init (&new_playlist, GST_TYPE_SYNC_SERVER_PLAYLIST);
+
+  g_variant_builder_add (&new_playlist, "t",
+      gst_sync_server_playlist_get_current_track (playlist));
+  g_variant_builder_add_value (&new_playlist,
+      make_tracks (uris, durations, n_tracks));
+
+  g_variant_unref (playlist);
+
+  return g_variant_builder_end (&new_playlist);
+}
+
+/**
+ * gst_sync_server_playlist_set_current_track:
+ * @playlist: (transfer full): The playlist
+ * @current_track: The current track to play
+ *
+ * Changes the currently playing track in the given playlist and returns a new
+ * playlist.
+ *
+ * Returns: (transfer full): The new playlist as a #GVariant
+ */
+GVariant *
+gst_sync_server_playlist_set_current_track (GVariant * playlist,
+    guint64 current_track)
+{
+  GVariantBuilder new_playlist;
+  GVariant *tracks;
+
+  g_variant_builder_init (&new_playlist, GST_TYPE_SYNC_SERVER_PLAYLIST);
+  tracks = g_variant_get_child_value (playlist, 1);
+
+  g_variant_builder_add (&new_playlist, "t", current_track);
+  g_variant_builder_add_value (&new_playlist, tracks);
+
+  g_variant_unref (playlist);
+
+  return g_variant_builder_end (&new_playlist);
 }

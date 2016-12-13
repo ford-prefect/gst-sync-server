@@ -30,6 +30,7 @@
  */
 #include <json-glib/json-glib.h>
 
+#include "sync-server.h"
 #include "sync-server-info.h"
 
 struct _GstSyncServerInfo {
@@ -38,7 +39,7 @@ struct _GstSyncServerInfo {
   guint64 version;
   gchar *clock_addr;
   guint clock_port;
-  gchar *uri;
+  GVariant *playlist;
   guint64 base_time;
   guint64 latency;
   gboolean stopped;
@@ -50,8 +51,25 @@ struct _GstSyncServerInfoClass {
   GObjectClass parent;
 };
 
+static JsonNode *
+gst_sync_server_info_serialize_property (JsonSerializable *serializable,
+    const gchar *property_name, const GValue *value, GParamSpec *pspec);
+static gboolean
+gst_sync_server_info_deserialize_property (JsonSerializable *serializable,
+    const gchar *property_name, GValue *value, GParamSpec *pspec,
+    JsonNode *property_node);
+
+static void
+gst_sync_server_info_json_iface_init (JsonSerializableIface *iface)
+{
+  iface->serialize_property = gst_sync_server_info_serialize_property;
+  iface->deserialize_property = gst_sync_server_info_deserialize_property;
+}
+
 #define gst_sync_server_info_parent_class parent_class
-G_DEFINE_TYPE (GstSyncServerInfo, gst_sync_server_info, G_TYPE_OBJECT);
+G_DEFINE_TYPE_WITH_CODE (GstSyncServerInfo, gst_sync_server_info,
+    G_TYPE_OBJECT, G_IMPLEMENT_INTERFACE (JSON_TYPE_SERIALIZABLE,
+      gst_sync_server_info_json_iface_init));
 
 #define DEFAULT_VERSION 1
 
@@ -60,7 +78,7 @@ enum {
   PROP_VERSION,
   PROP_CLOCK_ADDRESS,
   PROP_CLOCK_PORT,
-  PROP_URI,
+  PROP_PLAYLIST,
   PROP_BASE_TIME,
   PROP_LATENCY,
   PROP_STOPPED,
@@ -74,7 +92,44 @@ gst_sync_server_info_dispose (GObject * object)
   GstSyncServerInfo *info = GST_SYNC_SERVER_INFO (object);
 
   g_free (info->clock_addr);
-  g_free (info->uri);
+
+  if (info->playlist)
+    g_variant_unref (info->playlist);
+}
+
+static JsonNode *
+gst_sync_server_info_serialize_property (JsonSerializable *serializable,
+    const gchar *property_name, const GValue *value, GParamSpec *pspec)
+{
+  if (g_str_equal (property_name, "playlist")) {
+    return json_gvariant_serialize (g_value_get_variant (value));
+  } else {
+    return json_serializable_default_serialize_property (serializable,
+        property_name, value, pspec);
+  }
+}
+
+static gboolean
+gst_sync_server_info_deserialize_property (JsonSerializable *serializable,
+    const gchar *property_name, GValue *value, GParamSpec *pspec,
+    JsonNode *property_node)
+{
+  if (g_str_equal (property_name, "playlist")) {
+    GVariant *playlist;
+
+    playlist = json_gvariant_deserialize (property_node,
+        GST_SYNC_SERVER_PLAYLIST_FORMAT_STRING, NULL);
+
+    if (playlist) {
+      g_value_set_variant (value, playlist);
+      return TRUE;
+    } else
+      return FALSE;
+
+  } else {
+    return json_serializable_default_deserialize_property (serializable,
+        property_name, value, pspec, property_node);
+  }
 }
 
 static void
@@ -97,9 +152,11 @@ gst_sync_server_info_set_property (GObject * object, guint property_id,
       info->clock_port = g_value_get_uint (value);
       break;
 
-    case PROP_URI:
-      g_free (info->uri);
-      info->uri = g_value_dup_string (value);
+    case PROP_PLAYLIST:
+      if (info->playlist)
+        g_variant_unref (info->playlist);
+
+      info->playlist = g_value_dup_variant (value);
       break;
 
     case PROP_BASE_TIME:
@@ -147,8 +204,8 @@ gst_sync_server_info_get_property (GObject * object, guint property_id,
       g_value_set_uint (value, info->clock_port);
       break;
 
-    case PROP_URI:
-      g_value_set_string (value, info->uri);
+    case PROP_PLAYLIST:
+      g_value_set_variant (value, info->playlist);
       break;
 
     case PROP_BASE_TIME:
@@ -202,9 +259,10 @@ gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
         "Network port of the clock provider", 0, 65535, 0,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  g_object_class_install_property (object_class, PROP_URI,
-      g_param_spec_string ("uri", "URI",
-        "The URI to play", NULL,
+  g_object_class_install_property (object_class, PROP_PLAYLIST,
+      g_param_spec_variant ("playlist", "Playlist",
+        "Playlist as a current track index, and array of URI and durations",
+        GST_TYPE_SYNC_SERVER_PLAYLIST, NULL,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_BASE_TIME,
@@ -264,10 +322,10 @@ gst_sync_server_info_get_clock_port (GstSyncServerInfo * info)
   return info->clock_port;
 }
 
-gchar *
-gst_sync_server_info_get_uri (GstSyncServerInfo * info)
+GVariant *
+gst_sync_server_info_get_playlist (GstSyncServerInfo * info)
 {
-  return g_strdup (info->uri);
+  return g_variant_ref (info->playlist);
 }
 
 guint64

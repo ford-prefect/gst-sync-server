@@ -21,6 +21,7 @@
 #include <glib.h>
 #include <glib-object.h>
 #include <glib/gprintf.h>
+#include <gio/gio.h>
 
 #include <gst/gst.h>
 
@@ -29,11 +30,52 @@
 #define DEFAULT_ADDR "0.0.0.0"
 #define DEFAULT_PORT 3695
 
+#define MAX_TRACKS 1000
+
 static gchar *uri = NULL;
+static gchar *uris[MAX_TRACKS];
+static guint64 durations[MAX_TRACKS];
+static guint64 n_tracks;
 static gchar *addr = NULL;
 static gint port = DEFAULT_PORT;
 static guint64 latency = 0;
 static GMainLoop *loop;
+
+static gboolean
+read_playlist_file (const gchar * path)
+{
+  GFile *file = NULL;
+  char *contents = NULL, uri[1024];
+  gsize length;
+  gboolean ret = FALSE;
+  int i, read, len;
+
+  file = g_file_new_for_path (path);
+
+  if (!g_file_load_contents (file, NULL, &contents, &length, NULL, NULL)) {
+    g_message ("Could not read playlist file");
+    goto done;
+  }
+
+  for (i = 0, read = 0; read <length; i++) {
+    sscanf (&contents[read], "%s %lu\n%n", uri, &durations[i], &len);
+    uris[i] = g_strdup (uri);
+
+    read += len;
+  }
+
+  n_tracks = i;
+
+  ret = TRUE;
+
+done:
+  if (file)
+    g_object_unref (file);
+  if (contents)
+    g_free (contents);
+
+  return ret;
+}
 
 static gboolean
 con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
@@ -79,8 +121,20 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
 
   } else if (g_str_equal (tok[0], "unstop")) {
     gst_sync_server_set_stopped (server, FALSE);
-  }
 
+  } else if (g_str_equal (tok[0], "playlist")) {
+    if (tok[1] == NULL || tok[2] != NULL) {
+      g_message ("Invalid input: Use 'playlist <path>'");
+      goto done;
+    }
+
+    if (!read_playlist_file (tok[1]))
+      goto done;
+
+    g_object_set (server, "playlist",
+        gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
+    g_object_set (server, "uri", NULL, NULL);
+  }
 
 done:
   g_free (str);
@@ -103,10 +157,13 @@ int main (int argc, char **argv)
   GError *err;
   GOptionContext *ctx;
   GIOChannel *input;
+  static gchar *playlist_path = NULL;
   static GOptionEntry entries[] =
   {
     { "uri", 'u', 0, G_OPTION_ARG_STRING, &uri, "URI to send to clients",
       "URI" },
+    { "playlist", 'f', 0, G_OPTION_ARG_STRING, &playlist_path,
+      "Path to playlist file", "PLAYLIST" },
     { "address", 'a', 0, G_OPTION_ARG_STRING, &addr, "Address to listen on",
       "ADDR" },
     { "port", 'p', 0, G_OPTION_ARG_INT, &port, "Port to listen on",
@@ -127,8 +184,8 @@ int main (int argc, char **argv)
 
   g_option_context_free (ctx);
 
-  if (!uri) {
-    g_print ("You must specify a URI\n");
+  if (!uri && !playlist_path) {
+    g_print ("You must specify a URI or playlist path\n");
     return -1;
   }
 
@@ -137,7 +194,15 @@ int main (int argc, char **argv)
 
   server = gst_sync_server_new (addr, port);
 
-  g_object_set (server, "uri", uri, NULL);
+  if (playlist_path) {
+    if (!read_playlist_file (playlist_path))
+      return -1;
+
+    g_object_set (server, "playlist",
+        gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
+  } else
+    g_object_set (server, "uri", uri, NULL);
+
   if (latency)
     g_object_set (server, "latency", latency, NULL);
 
@@ -160,6 +225,7 @@ int main (int argc, char **argv)
 
   g_io_channel_unref (input);
 
+  g_free (playlist_path);
   g_free (uri);
   g_free (addr);
 }
