@@ -45,6 +45,7 @@ struct _GstSyncServerInfo {
   gboolean stopped;
   gboolean paused;
   guint64 base_time_offset;
+  guint64 stream_start_delay;
 };
 
 struct _GstSyncServerInfoClass {
@@ -84,6 +85,7 @@ enum {
   PROP_STOPPED,
   PROP_PAUSED,
   PROP_BASE_TIME_OFFSET,
+  PROP_STREAM_START_DELAY,
 };
 
 static void
@@ -179,6 +181,10 @@ gst_sync_server_info_set_property (GObject * object, guint property_id,
       info->base_time_offset = g_value_get_uint64 (value);
       break;
 
+    case PROP_STREAM_START_DELAY:
+      info->stream_start_delay = g_value_get_uint64 (value);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -226,6 +232,10 @@ gst_sync_server_info_get_property (GObject * object, guint property_id,
 
     case PROP_BASE_TIME_OFFSET:
       g_value_set_uint64 (value, info->base_time_offset);
+      break;
+
+    case PROP_STREAM_START_DELAY:
+      g_value_set_uint64 (value, info->stream_start_delay);
       break;
 
     default:
@@ -278,6 +288,11 @@ gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
   g_object_class_install_property (object_class, PROP_LATENCY,
       g_param_spec_uint64 ("latency", "Latency",
         "Latency of the GStreamer pipeline (ns)", 0, G_MAXUINT64, 0,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_STREAM_START_DELAY,
+      g_param_spec_uint64 ("stream-start-delay", "Stream start delay",
+        "Delay before starting a stream (ns)", 0, G_MAXUINT64, 0,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (object_class, PROP_STOPPED,
@@ -356,4 +371,10 @@ guint64
 gst_sync_server_info_get_base_time_offset (GstSyncServerInfo * info)
 {
   return info->base_time_offset;
+}
+
+guint64
+gst_sync_server_info_get_stream_start_delay (GstSyncServerInfo * info)
+{
+  return info->stream_start_delay;
 }

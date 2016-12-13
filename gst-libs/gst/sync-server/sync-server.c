@@ -56,6 +56,7 @@ struct _GstSyncServer {
   guint64 latency;
   guint64 base_time; /* time of first transition to PLAYING */
   guint64 base_time_offset; /* what to offset base time by */
+  guint64 stream_start_delay;
   guint64 last_pause_time;
   guint64 last_duration;
 
@@ -95,10 +96,12 @@ enum {
   PROP_CONTROL_PORT,
   PROP_PLAYLIST,
   PROP_LATENCY,
+  PROP_STREAM_START_DELAY,
 };
 
 #define DEFAULT_PORT 0
-#define DEFAULT_LATENCY 300 * GST_MSECOND
+#define DEFAULT_LATENCY (300 * GST_MSECOND)
+#define DEFAULT_STREAM_START_DELAY (500 * GST_MSECOND)
 
 static void
 free_playlist (GstSyncServer * self)
@@ -178,6 +181,7 @@ update_pipeline (GstSyncServer * self, gboolean advance)
       advance = FALSE;
     }
 
+    self->base_time_offset += self->stream_start_delay;
     self->current_track++;
   }
 
@@ -236,6 +240,7 @@ get_sync_info (GstSyncServer * self)
       "base-time", self->base_time,
       "base-time-offset", self->base_time_offset,
       "latency", self->latency,
+      "stream-start-delay", self->stream_start_delay,
       "stopped", self->stopped,
       "paused", self->paused, /* FIXME: Deal with pausing on live streams */
       NULL);
@@ -311,6 +316,10 @@ gst_sync_server_set_property (GObject * object, guint property_id,
       /* We don't distribute this immediately as it will cause a glitch */
       break;
 
+    case PROP_STREAM_START_DELAY:
+      self->stream_start_delay = g_value_get_uint64 (value);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -342,6 +351,10 @@ gst_sync_server_get_property (GObject * object, guint property_id,
 
     case PROP_LATENCY:
       g_value_set_uint64 (value, self->latency);
+      break;
+
+    case PROP_STREAM_START_DELAY:
+      g_value_set_uint64 (value, self->stream_start_delay);
       break;
 
     default:
@@ -422,6 +435,20 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /**
+   * GstSyncServer:stream-start-delay:
+   *
+   * The amount of time to wait between streams before starting. This allows
+   * for devices which take different amounts of time to load the data (either
+   * due to network delays or differing storage speeds) to start smoothly at
+   * the same time when switching streams.
+   */
+  g_object_class_install_property (object_class, PROP_STREAM_START_DELAY,
+      g_param_spec_uint64 ("stream-start-delay", "Stream start delay",
+        "Delay before starting stream playback", 0, G_MAXUINT64,
+        DEFAULT_STREAM_START_DELAY,
+        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  /**
    * GstSyncServer::end-of-stream
    *
    * Emitted when the currently playing URI reaches the end of the stream. This
@@ -444,6 +471,7 @@ gst_sync_server_init (GstSyncServer * self)
   self->uris = NULL;
   self->durations = NULL;
   self->latency = DEFAULT_LATENCY;
+  self->stream_start_delay = DEFAULT_STREAM_START_DELAY;
   self->server_started = FALSE;
   self->paused = FALSE;
   self->base_time_offset = 0;

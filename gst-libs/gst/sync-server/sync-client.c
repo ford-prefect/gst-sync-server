@@ -172,7 +172,10 @@ update_pipeline (GstSyncClient * self, gboolean advance)
       return;
     }
 
+    base_time_offset +=
+      gst_sync_server_info_get_stream_start_delay (self->info);
     current_track++;
+
     playlist = gst_sync_server_info_get_playlist (self->info);
     playlist =
       gst_sync_server_playlist_set_current_track (playlist, current_track);
@@ -263,7 +266,8 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
     case GST_MESSAGE_STATE_CHANGED: {
       GstState old_state, new_state;
-      GstClockTime cur_pos, now;
+      GstClockTime now;
+      gint64 cur_pos;
 
       if (g_atomic_int_get (&self->seek_state) != NEED_SEEK ||
           GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))

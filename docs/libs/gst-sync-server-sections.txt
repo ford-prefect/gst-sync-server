@@ -67,4 +67,5 @@ gst_sync_server_info_get_base_time
 gst_sync_server_info_get_base_time_offset
 gst_sync_server_info_get_latency
 gst_sync_server_info_get_paused
+gst_sync_server_info_get_stream_start_delay
 </SECTION>
