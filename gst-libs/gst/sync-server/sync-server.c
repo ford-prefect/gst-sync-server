@@ -62,7 +62,8 @@ struct _GstSyncServer {
 
   gchar **uris;
   guint64 *durations;
-  guint64 n_tracks, current_track;
+  guint64 n_tracks;
+  guint64 current_track; /* set to -1 at the end of the playlist */
   GHashTable *fakesinks;
 
   gboolean server_started;
@@ -110,7 +111,7 @@ free_playlist (GstSyncServer * self)
       self->n_tracks);
 
   self->n_tracks = 0;
-  self->current_track = 0;
+  self->current_track = -1;
   self->uris = NULL;
   self->durations = NULL;
 }
@@ -167,7 +168,8 @@ update_pipeline (GstSyncServer * self, gboolean advance)
   GstState new_state;
 
   if (advance) {
-    if (self->current_track + 1 == self->n_tracks) {
+    if (self->current_track == -1 ||
+        self->current_track + 1 == self->n_tracks) {
       /* We're done with all the tracks */
       return TRUE;
     }
@@ -274,20 +276,28 @@ gst_sync_server_set_property (GObject * object, guint property_id,
       break;
 
     case PROP_PLAYLIST: {
-      gchar **new_uris;
+      gchar **old_uris, **new_uris;
+      guint64 *old_durations, old_current_track, old_n_tracks;
       guint64 *new_durations, new_current_track, new_n_tracks;
       GVariant *playlist;
       int i;
 
+      old_uris = self->uris;
+      old_durations = self->durations;
+      old_current_track = self->current_track;
+      old_n_tracks = self->n_tracks;
+
       playlist = g_value_get_variant (value);
-      gst_sync_server_playlist_get_tracks (playlist, &new_uris, &new_durations,
-          &new_n_tracks);
-      new_current_track =
+      gst_sync_server_playlist_get_tracks (playlist, &self->uris,
+          &self->durations, &self->n_tracks);
+      self->current_track =
         gst_sync_server_playlist_get_current_track (playlist);
 
-      if (self->pipeline) {
-        if (self->n_tracks != 0 &&
-            self->current_track != new_current_track) {
+      if (self->server_started) {
+        if (old_n_tracks == 0 ||
+            old_current_track != self->current_track ||
+            !g_str_equal (old_uris[old_current_track],
+              self->uris[self->current_track])) {
           /* We need to update things */
           gst_element_set_state (self->pipeline, GST_STATE_NULL);
           update_pipeline (self, FALSE);
@@ -300,13 +310,8 @@ gst_sync_server_set_property (GObject * object, guint property_id,
         }
       }
 
-      gst_sync_server_playlist_free_tracks (self->uris, self->durations,
-          self->n_tracks);
-
-      self->n_tracks = new_n_tracks;
-      self->current_track = new_current_track;
-      self->uris = new_uris;
-      self->durations = new_durations;
+      gst_sync_server_playlist_free_tracks (old_uris, old_durations,
+          old_n_tracks);
 
       break;
     }
@@ -603,8 +608,10 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         gst_element_set_state (self->pipeline, GST_STATE_NULL);
         g_signal_emit_by_name (self, "end-of-stream", NULL);
 
-        if (self->current_track + 1 == self->n_tracks)
+        if (self->current_track + 1 == self->n_tracks) {
+          self->current_track = -1;
           g_signal_emit_by_name (self, "end-of-playlist", NULL);
+        }
 
         update_pipeline (self, TRUE);
       }
