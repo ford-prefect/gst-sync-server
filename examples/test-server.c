@@ -32,6 +32,7 @@
 
 #define MAX_TRACKS 1000
 
+static gchar *playlist_path = NULL;
 static gchar *uris[MAX_TRACKS];
 static guint64 durations[MAX_TRACKS];
 static guint64 n_tracks;
@@ -116,7 +117,10 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
       goto done;
     }
 
-    if (!read_playlist_file (tok[1]))
+    g_free (playlist_path);
+    playlist_path = g_strdup (tok[1]);
+
+    if (!read_playlist_file (playlist_path))
       goto done;
 
     g_object_set (server, "playlist",
@@ -133,8 +137,16 @@ done:
 static void
 eos_cb (GstSyncServer * server, gpointer user_data)
 {
-  /* Restart current media in a loop */
-  g_print ("Got EOS");
+  g_message ("Got EOS");
+}
+
+static void
+eop_cb (GstSyncServer * server, gpointer user_data)
+{
+  /* Restart current playlist in a loop */
+  g_message ("Got EOP, looping");
+  g_object_set (server, "playlist",
+      gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
 }
 
 int main (int argc, char **argv)
@@ -143,7 +155,6 @@ int main (int argc, char **argv)
   GError *err;
   GOptionContext *ctx;
   GIOChannel *input;
-  static gchar *playlist_path = NULL;
   static GOptionEntry entries[] =
   {
     { "playlist", 'f', 0, G_OPTION_ARG_STRING, &playlist_path,
@@ -191,6 +202,7 @@ int main (int argc, char **argv)
 
   gst_sync_server_start (server, NULL);
   g_signal_connect (server, "end-of-stream", G_CALLBACK (eos_cb), NULL);
+  g_signal_connect (server, "end-of-playlist", G_CALLBACK (eop_cb), NULL);
 
   input = g_io_channel_unix_new (0);
   g_io_channel_set_encoding (input, NULL, NULL);

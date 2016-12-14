@@ -457,6 +457,15 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
   g_signal_new_class_handler ("end-of-stream", GST_TYPE_SYNC_SERVER,
       G_SIGNAL_RUN_FIRST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
 
+  /**
+   * GstSyncServer::end-of-playlist
+   *
+   * Emitted when the currently all the songs in the playlist have finished
+   * playing.
+   */
+  g_signal_new_class_handler ("end-of-playlist", GST_TYPE_SYNC_SERVER,
+      G_SIGNAL_RUN_FIRST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
+
   GST_DEBUG_CATEGORY_INIT (sync_server_debug, "syncserver", 0, "GstSyncServer");
 }
 
@@ -593,6 +602,9 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
       if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
         gst_element_set_state (self->pipeline, GST_STATE_NULL);
         g_signal_emit_by_name (self, "end-of-stream", NULL);
+
+        if (self->current_track + 1 == self->n_tracks)
+          g_signal_emit_by_name (self, "end-of-playlist", NULL);
 
         update_pipeline (self, TRUE);
       }
