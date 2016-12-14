@@ -36,6 +36,10 @@
  * controlling the client, but defers that to an object that implements the
  * #GstSyncControlServer interface. A default TCP-based implementation is
  * provided with this library, however.
+ *
+ * The stream(s) to play are configured using the #GstSyncServer:playlist
+ * property, which takes a #GVariant that can be constructed using
+ * gst_sync_server_playlist_new() and manipulated by related functions.
  */
 
 #include <gst/gst.h>
