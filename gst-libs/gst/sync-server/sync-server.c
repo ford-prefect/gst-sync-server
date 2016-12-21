@@ -610,11 +610,11 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
        * clients to give us a playbin) */
       if (GST_MESSAGE_SRC (message) == GST_OBJECT (self->pipeline)) {
         gst_element_set_state (self->pipeline, GST_STATE_NULL);
-        g_signal_emit_by_name (self, "end-of-stream", NULL);
+        g_signal_emit_by_name (self, "end-of-stream");
 
         if (self->current_track + 1 == self->n_tracks) {
           self->current_track = -1;
-          g_signal_emit_by_name (self, "end-of-playlist", NULL);
+          g_signal_emit_by_name (self, "end-of-playlist");
         }
 
         update_pipeline (self, TRUE);
