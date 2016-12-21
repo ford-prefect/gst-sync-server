@@ -136,7 +136,7 @@ read_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
   len = g_input_stream_read_finish (istream, res, &err);
   if (len < 1) {
     if (err) {
-      g_message ("Could not read sync info: %s", err->message);
+      g_warning ("Could not read sync info: %s", err->message);
       g_error_free (err);
     }
     return;
