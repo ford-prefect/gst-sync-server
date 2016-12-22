@@ -161,14 +161,14 @@ get_client_info (GstSyncControlTcpServer * self, GSocketConnection * conn)
   istream = g_io_stream_get_input_stream (G_IO_STREAM (conn));
 
   if (g_input_stream_read (istream, buf, sizeof (buf) - 1, NULL, &err) < 0) {
-    g_warning ("Could not read client info: %s", err->message);
+    g_message ("Could not read client info: %s", err->message);
     g_error_free (err);
     goto done;
   }
 
   node = json_from_string (buf, &err);
   if (!node) {
-    g_warning ("Could not parse client info: %s", err->message);
+    g_message ("Could not parse client info: %s", err->message);
     g_error_free (err);
     goto done;
   }
@@ -178,7 +178,7 @@ get_client_info (GstSyncControlTcpServer * self, GSocketConnection * conn)
   config = json_gvariant_deserialize (json_object_get_member (obj, "config"),
       "a{sv}", &err);
   if (!config) {
-    g_warning ("Could not parse client config: %s", err->message);
+    g_message ("Could not parse client config: %s", err->message);
     g_error_free (err);
     goto done;
   }
@@ -248,7 +248,7 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
   char c = 0;
 
   if (write (fd, &c, sizeof (c)) != sizeof (c))
-    g_warning ("Failed to write data to fd");
+    g_message ("Failed to write data to fd");
 }
 
 struct ClientData {
