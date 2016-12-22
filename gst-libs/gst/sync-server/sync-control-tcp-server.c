@@ -232,9 +232,12 @@ socket_error_cb (GSocket * socket, GIOCondition cond, gpointer user_data)
 {
   GMainLoop *loop = (GMainLoop *) user_data;
 
-  g_message ("Got error on a client socket, closing connection");
-  g_main_loop_quit (loop);
+  if (cond & G_IO_ERR)
+    g_message ("Got error on a client socket, closing connection");
+  else if (g_socket_is_connected (socket))
+    ; /* Either we have an EOF or some unexpected data, just quit */
 
+  g_main_loop_quit (loop);
   return FALSE;
 }
 
@@ -294,38 +297,43 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
   GError *err;
 
   socket = g_socket_connection_get_socket (connection);
-
   loop = g_main_loop_new (g_main_context_get_thread_default (), FALSE);
 
-  err_source = g_socket_create_source (socket, G_IO_ERR, NULL);
+  d.self = self;
+  d.socket = socket;
+  d.loop = loop;
+
+  /* Get the ID And config from the client */
+  d.id = get_client_info (self, connection);
+  if (!d.id)
+    goto done;
+
+  /* Now get the sync info from the server */
+  send_sync_info (self, socket);
+
+  /* Catch errors (at this point, any input after the client info is also
+   * unexpected) on the socket and exit cleanly */
+  err_source = g_socket_create_source (socket, G_IO_IN | G_IO_ERR, NULL);
   g_source_set_callback (err_source, (GSourceFunc) socket_error_cb, loop, NULL);
   g_source_attach (err_source, g_main_context_get_thread_default ());
 
+  /* We get a notification every time sync-info changes, and dispatch that to
+   * the client thread */
   if (!g_unix_open_pipe (fds, 0, &err)) {
     g_warning ("Could not create pipe: %s", err->message);
     g_error_free (err);
     goto done;
   }
 
-  /* We get a notification every time sync-info changes, and dispatch that to
-   * the client thread */
   pipe_source = g_unix_fd_source_new (fds[0], G_IO_IN | G_IO_ERR);
-  d.self = self;
-  d.socket = socket;
-  d.loop = loop;
   g_source_set_callback (pipe_source, (GSourceFunc) sync_info_updated, &d,
       NULL);
   g_source_attach (pipe_source, g_main_context_get_thread_default ());
 
-  d.id = get_client_info (self, connection);
-  if (!d.id)
-    goto done;
-
-  send_sync_info (self, socket);
-
   sig_id = g_signal_connect (self, "notify::sync-info",
       G_CALLBACK (sync_info_notify), GINT_TO_POINTER (fds[1]));
 
+  /* Now loop until we're done */
   g_main_loop_run (loop);
 
   g_signal_handler_disconnect (self, sig_id);
