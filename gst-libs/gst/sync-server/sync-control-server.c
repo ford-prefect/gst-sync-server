@@ -41,6 +41,11 @@
  *     that are used to have the server start/stop listening for connections
  *     and sending information.
  *
+ *   * The GstSyncControlServer::client-joined and
+ *     GstSyncControlServer::client-left signals that are used to let the
+ *     server knows when a client joins (and any associated configuration
+ *     information, if present).
+ *
  * The specifics of how connections from clients are received, and how data is
  * sent is entirely up to the implementation. It is expected that clients will
  * use a corresponding #GstSyncControlClient implementation.
@@ -104,6 +109,30 @@ gst_sync_control_server_default_init (GstSyncControlServerInterface * iface)
   g_signal_new_class_handler ("stop", GST_TYPE_SYNC_CONTROL_SERVER,
       G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE,
       0, NULL);
+
+  /**
+   * GstSyncControlServer::client-joined:
+   * @server: the #GstSyncControlServer
+   * @id: (transfer none): the client ID as a string
+   * @config: (transfer none): client-specific configuration as a #GVariant
+   *          dictionary
+   *
+   * Emitted whenever a new client connects.
+   */
+  g_signal_new_class_handler ("client-joined", GST_TYPE_SYNC_CONTROL_SERVER,
+      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_STRING,
+      G_TYPE_VARIANT, NULL);
+
+  /**
+   * GstSyncControlServer::client-left:
+   * @server: the #GstSyncControlServer
+   * @id: (transfer none): the client ID as a string
+   *
+   * Emitted whenever a client disconnects.
+   */
+  g_signal_new_class_handler ("client-left", GST_TYPE_SYNC_CONTROL_SERVER,
+      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING,
+      NULL);
 }
 
 /**

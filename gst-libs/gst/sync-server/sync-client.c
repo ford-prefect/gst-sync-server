@@ -50,6 +50,9 @@ enum {
 struct _GstSyncClient {
   GObject parent;
 
+  gchar *id;
+  GVariant *config;
+
   gchar *control_addr;
   gint control_port;
 
@@ -81,6 +84,8 @@ GST_DEBUG_CATEGORY_STATIC (sync_client_debug);
 
 enum {
   PROP_0,
+  PROP_ID,
+  PROP_CONFIG,
   PROP_CONTROL_CLIENT,
   PROP_CONTROL_ADDRESS,
   PROP_CONTROL_PORT,
@@ -103,6 +108,14 @@ gst_sync_client_dispose (GObject * object)
   if (self->clock) {
     gst_object_unref (self->clock);
     self->clock = NULL;
+  }
+
+  g_free (self->id);
+  self->id = NULL;
+
+  if (self->config) {
+    g_variant_unref (self->config);
+    self->config = NULL;
   }
 
   g_free (self->control_addr);
@@ -467,11 +480,29 @@ gst_sync_client_set_property (GObject * object, guint property_id,
   GstSyncClient *self = GST_SYNC_CLIENT (object);
 
   switch (property_id) {
+    case PROP_ID:
+      g_free (self->id);
+      self->id = g_value_dup_string (value);
+      break;
+
+    case PROP_CONFIG:
+      if (self->config)
+        g_variant_unref (self->config);
+
+      self->config = g_value_dup_variant (value);
+      break;
+
     case PROP_CONTROL_CLIENT:
       if (self->client)
         g_object_unref (self->client);
 
       self->client = g_value_dup_object (value);
+
+      g_object_bind_property (self, "id", self->client, "id",
+          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
+      g_object_bind_property (self, "config", self->client, "config",
+          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
+
       break;
 
     case PROP_CONTROL_ADDRESS:
@@ -498,6 +529,14 @@ gst_sync_client_get_property (GObject * object, guint property_id,
   GstSyncClient *self = GST_SYNC_CLIENT (object);
 
   switch (property_id) {
+    case PROP_ID:
+      g_value_set_string (value, self->id);
+      break;
+
+    case PROP_CONFIG:
+      g_value_set_variant (value, self->config);
+      break;
+
     case PROP_CONTROL_CLIENT:
       g_value_set_object (value, self->client);
       break;
@@ -530,6 +569,31 @@ gst_sync_client_class_init (GstSyncClientClass * klass)
     GST_DEBUG_FUNCPTR (gst_sync_client_set_property);
   object_class->get_property =
     GST_DEBUG_FUNCPTR (gst_sync_client_get_property);
+
+  /**
+   * GstSyncControlClient:id:
+   *
+   * Unique client identifier used by the server for client-specific
+   * configuration. Automatically generated if set to NULL. Only has an effect
+   * if set before the client is started.
+   */
+  g_object_class_install_property (object_class, PROP_ID,
+      g_param_spec_string ("id", "ID", "Unique client identifier", NULL,
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  /**
+   * GstSyncControlClient:config:
+   *
+   * Client configuration, which can include any data about the client that the
+   * server can use. This can include such things as display configuration,
+   * position, orientation where transformations need to be applied. The
+   * information is provided as a dictionary stored in a #GVariant. Only has an
+   * effect if set before the client is started.
+   */
+  g_object_class_install_property (object_class, PROP_CONFIG,
+      g_param_spec_variant ("config", "Config", "Client configuration",
+        G_VARIANT_TYPE ("a{sv}"), NULL,
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   /**
    * GstSyncClient:control-client:
@@ -656,6 +720,12 @@ gst_sync_client_new (const gchar * control_addr, gint control_port)
         NULL);
 }
 
+static gchar *
+generate_client_id ()
+{
+  return g_strdup_printf ("gst-sync-client-%x", g_random_int ());
+}
+
 /**
  * gst_sync_client_start:
  * @client: The #GstSyncClient object
@@ -671,10 +741,25 @@ gboolean
 gst_sync_client_start (GstSyncClient * client, GError ** err)
 {
   gboolean ret;
+  gchar *id;
 
-  if (!client->client)
-    client->client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
+  if (!client->client) {
+    GstSyncControlTcpClient *tcp_client;
+
+    tcp_client = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_CLIENT, NULL);
+    g_object_set (client, "control-client", tcp_client, NULL);
+
+    g_object_unref (tcp_client);
+  }
+
   g_return_val_if_fail (GST_IS_SYNC_CONTROL_CLIENT (client->client), FALSE);
+
+  g_object_get (client, "id", &id, NULL);
+  if (!id) {
+    id = generate_client_id ();
+    g_object_set (client, "id", id, NULL);
+  }
+  g_free (id);
 
   if (client->control_addr) {
     gst_sync_control_client_set_address (client->client, client->control_addr);

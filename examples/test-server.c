@@ -149,6 +149,23 @@ eop_cb (GstSyncServer * server, gpointer user_data)
       gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
 }
 
+static void
+client_joined_cb (GstSyncServer * server, gchar * id, GVariant * config,
+    gpointer user_data)
+{
+  gchar *config_str;
+
+  config_str = g_variant_print (config, FALSE);
+  g_message ("Added client: %s, config: %s", id, config_str);
+  g_free (config_str);
+}
+
+static void
+client_left_cb (GstSyncServer * server, gchar * id, gpointer user_data)
+{
+  g_message ("Removed client: %s", id);
+}
+
 int main (int argc, char **argv)
 {
   GstSyncServer *server;
@@ -203,6 +220,9 @@ int main (int argc, char **argv)
   gst_sync_server_start (server, NULL);
   g_signal_connect (server, "end-of-stream", G_CALLBACK (eos_cb), NULL);
   g_signal_connect (server, "end-of-playlist", G_CALLBACK (eop_cb), NULL);
+  g_signal_connect (server, "client-joined", G_CALLBACK (client_joined_cb),
+      NULL);
+  g_signal_connect (server, "client-left", G_CALLBACK (client_left_cb), NULL);
 
   input = g_io_channel_unix_new (0);
   g_io_channel_set_encoding (input, NULL, NULL);

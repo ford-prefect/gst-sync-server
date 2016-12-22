@@ -32,6 +32,9 @@
 struct _GstSyncControlTcpClient {
   GObject parent;
 
+  gchar *id;
+  GVariant *config;
+
   gchar *addr;
   gint port;
   GstSyncServerInfo *info;
@@ -50,6 +53,8 @@ G_DEFINE_TYPE_WITH_CODE (GstSyncControlTcpClient, gst_sync_control_tcp_client,
 
 enum {
   PROP_0,
+  PROP_ID,
+  PROP_CONFIG,
   PROP_ADDRESS,
   PROP_PORT,
   PROP_SYNC_INFO,
@@ -65,11 +70,34 @@ gst_sync_control_tcp_client_set_property (GObject * object, guint property_id,
   GstSyncControlTcpClient *self = GST_SYNC_CONTROL_TCP_CLIENT (object);
 
   switch (property_id) {
-    case PROP_ADDRESS:
-      if (self->addr)
-        g_free (self->addr);
+    case PROP_ID:
+      if (self->conn) {
+        g_warning ("Trying to set client ID after it has started");
+        break;
+      }
 
+      g_free (self->id);
+      self->id = g_value_dup_string (value);
+
+      break;
+
+    case PROP_CONFIG:
+      if (self->conn) {
+        g_warning ("Trying to set client config after it has started");
+        break;
+      }
+
+      if (self->config)
+        g_variant_unref (self->config);
+
+      self->config = g_value_dup_variant (value);
+
+      break;
+
+    case PROP_ADDRESS:
+      g_free (self->addr);
       self->addr = g_value_dup_string (value);
+
       break;
 
     case PROP_PORT:
@@ -89,6 +117,14 @@ gst_sync_control_tcp_client_get_property (GObject * object, guint property_id,
   GstSyncControlTcpClient *self = GST_SYNC_CONTROL_TCP_CLIENT (object);
 
   switch (property_id) {
+    case PROP_ID:
+      g_value_set_string (value, self->id);
+      break;
+
+    case PROP_CONFIG:
+      g_value_set_variant (value, self->config);
+      break;
+
     case PROP_ADDRESS:
       g_value_set_string (value, self->addr);
       break;
@@ -114,6 +150,14 @@ gst_sync_control_tcp_client_dispose (GObject * object)
 
   gst_sync_control_tcp_client_stop (self);
 
+  g_free (self->id);
+  self->id = NULL;
+
+  if (self->config) {
+    g_variant_unref (self->config);
+    self->config = NULL;
+  }
+
   g_free (self->addr);
   self->addr = NULL;
 
@@ -123,6 +167,78 @@ gst_sync_control_tcp_client_dispose (GObject * object)
   }
 
   G_OBJECT_CLASS (parent_class)->dispose (object);
+}
+
+static gchar *
+make_client_info (gchar * id, GVariant * config)
+{
+  JsonBuilder *builder;
+  JsonNode *node;
+  gboolean free_config = FALSE;
+  gchar *ret;
+
+  if (!config) {
+    free_config = TRUE;
+    config = g_variant_new ("a{sv}", NULL);
+  }
+
+  builder = json_builder_new ();
+
+  json_builder_begin_object (builder);
+
+  json_builder_set_member_name (builder, "id");
+  json_builder_add_string_value (builder, id);
+
+  json_builder_set_member_name (builder, "config");
+  json_builder_add_value (builder, json_gvariant_serialize (config));
+
+  json_builder_end_object (builder);
+
+  node = json_builder_get_root (builder);
+
+  ret = json_to_string (node, FALSE);
+
+  json_builder_reset (builder);
+  json_node_free (node);
+
+  if (free_config)
+    g_variant_unref (config);
+
+  return ret;
+}
+
+static void
+send_done_cb (GObject * object, GAsyncResult * res, gpointer user_data)
+{
+  GstSyncControlTcpClient * self = GST_SYNC_CONTROL_TCP_CLIENT (user_data);
+  GOutputStream *ostream = (GOutputStream *) object;
+  gssize len;
+  GError *err = NULL;
+
+  if (!g_output_stream_write_all_finish (ostream, res, &len, &err)) {
+    if (err) {
+      g_warning ("Could not send client info: %s", err->message);
+      g_error_free (err);
+    }
+
+    return;
+  }
+
+  /* Now that we've sent client info, we can wait for sync info */
+  read_sync_info (self);
+}
+
+static void
+send_client_info (GstSyncControlTcpClient * self)
+{
+  gchar *info;
+  GOutputStream *ostream;
+
+  info = make_client_info (self->id, self->config);
+  ostream = g_io_stream_get_output_stream (G_IO_STREAM (self->conn));
+
+  g_output_stream_write_all_async (ostream, info, strlen (info), 0, NULL,
+      send_done_cb, self);
 }
 
 static void
@@ -186,7 +302,7 @@ gst_sync_control_tcp_client_start (GstSyncControlTcpClient * self,
     goto done;
   }
 
-  read_sync_info (self);
+  send_client_info (self);
 
 done:
   g_object_unref (client);
@@ -212,6 +328,8 @@ gst_sync_control_tcp_client_class_init (GstSyncControlTcpClientClass * klass)
   object_class->set_property = gst_sync_control_tcp_client_set_property;
   object_class->get_property = gst_sync_control_tcp_client_get_property;
 
+  g_object_class_override_property (object_class, PROP_ID, "id");
+  g_object_class_override_property (object_class, PROP_CONFIG, "config");
   g_object_class_override_property (object_class, PROP_ADDRESS, "address");
   g_object_class_override_property (object_class, PROP_PORT, "port");
   g_object_class_override_property (object_class, PROP_SYNC_INFO, "sync-info");

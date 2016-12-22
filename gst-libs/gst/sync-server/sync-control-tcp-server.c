@@ -147,6 +147,57 @@ gst_sync_control_tcp_server_dispose (GObject * object)
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
+static gchar *
+get_client_info (GstSyncControlTcpServer * self, GSocketConnection * conn)
+{
+  JsonNode *node = NULL;
+  JsonObject *obj;
+  gchar *id = NULL;
+  GVariant *config = NULL;
+  GInputStream *istream;
+  gchar buf[16384] = { 0, };
+  GError *err = NULL;
+
+  istream = g_io_stream_get_input_stream (G_IO_STREAM (conn));
+
+  if (g_input_stream_read (istream, buf, sizeof (buf) - 1, NULL, &err) < 0) {
+    g_warning ("Could not read client info: %s", err->message);
+    g_error_free (err);
+    goto done;
+  }
+
+  node = json_from_string (buf, &err);
+  if (!node) {
+    g_warning ("Could not parse client info: %s", err->message);
+    g_error_free (err);
+    goto done;
+  }
+
+  obj = json_node_get_object (node);
+
+  config = json_gvariant_deserialize (json_object_get_member (obj, "config"),
+      "a{sv}", &err);
+  if (!config) {
+    g_warning ("Could not parse client config: %s", err->message);
+    g_error_free (err);
+    goto done;
+  }
+
+  /* FIXME: can/should we check the id for uniqueness? */
+  id = g_strdup (json_object_get_string_member (obj, "id"));
+
+  g_signal_emit_by_name (self, "client-joined", id,
+      g_variant_ref_sink (config));
+
+done:
+  if (config)
+    g_variant_unref (config);
+  if (node)
+    json_node_unref (node);
+
+  return id;
+}
+
 static gboolean
 send_sync_info (GstSyncControlTcpServer * self, GSocket * socket)
 {
@@ -182,7 +233,6 @@ socket_error_cb (GSocket * socket, GIOCondition cond, gpointer user_data)
   GMainLoop *loop = (GMainLoop *) user_data;
 
   g_message ("Got error on a client socket, closing connection");
-
   g_main_loop_quit (loop);
 
   return FALSE;
@@ -198,16 +248,17 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
     g_warning ("Failed to write data to fd");
 }
 
-struct SyncInfoData {
+struct ClientData {
   GstSyncControlTcpServer *self;
   GSocket *socket;
   GMainLoop *loop;
+  gchar *id;
 };
 
 static gboolean
 sync_info_updated (gint fd, GIOCondition cond, gpointer user_data)
 {
-  struct SyncInfoData *data = (struct SyncInfoData *) user_data;
+  struct ClientData *data = (struct ClientData *) user_data;
   char c;
 
   if (cond & G_IO_ERR) {
@@ -239,12 +290,10 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
   GMainLoop *loop;
   gint fds[2] = { -1, };
   gulong sig_id;
-  struct SyncInfoData d;
+  struct ClientData d = { 0, };
   GError *err;
 
   socket = g_socket_connection_get_socket (connection);
-
-  send_sync_info (self, socket);
 
   loop = g_main_loop_new (g_main_context_get_thread_default (), FALSE);
 
@@ -264,8 +313,15 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
   d.self = self;
   d.socket = socket;
   d.loop = loop;
-  g_source_set_callback (pipe_source, (GSourceFunc) sync_info_updated, &d, NULL);
+  g_source_set_callback (pipe_source, (GSourceFunc) sync_info_updated, &d,
+      NULL);
   g_source_attach (pipe_source, g_main_context_get_thread_default ());
+
+  d.id = get_client_info (self, connection);
+  if (!d.id)
+    goto done;
+
+  send_sync_info (self, socket);
 
   sig_id = g_signal_connect (self, "notify::sync-info",
       G_CALLBACK (sync_info_notify), GINT_TO_POINTER (fds[1]));
@@ -277,9 +333,13 @@ run_cb (GThreadedSocketService * service, GSocketConnection * connection,
   g_source_destroy (err_source);
   g_source_destroy (pipe_source);
 
+  g_signal_emit_by_name (self, "client-left", d.id);
+
 done:
   g_close (fds[0], NULL);
   g_close (fds[1], NULL);
+
+  g_free (d.id);
 
   g_main_loop_unref (loop);
   return TRUE;

@@ -255,6 +255,24 @@ get_sync_info (GstSyncServer * self)
 }
 
 static void
+client_joined_cb (GstSyncControlServer * server, const gchar * id,
+    const GVariant * config, gpointer user_data)
+{
+  GstSyncServer *self = GST_SYNC_SERVER (user_data);
+
+  g_signal_emit_by_name (self, "client-joined", id, config);
+}
+
+static void
+client_left_cb (GstSyncControlServer * server, const gchar * id,
+    gpointer user_data)
+{
+  GstSyncServer *self = GST_SYNC_SERVER (user_data);
+
+  g_signal_emit_by_name (self, "client-left", id);
+}
+
+static void
 gst_sync_server_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
@@ -266,6 +284,13 @@ gst_sync_server_set_property (GObject * object, guint property_id,
         g_object_unref (self->server);
 
       self->server = g_value_dup_object (value);
+
+      /* We just proxy the signal */
+      g_signal_connect (self->server, "client-joined",
+          G_CALLBACK (client_joined_cb), self);
+      g_signal_connect (self->server, "client-left",
+          G_CALLBACK (client_left_cb), self);
+
       break;
 
     case PROP_CONTROL_ADDRESS:
@@ -476,6 +501,30 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
       G_SIGNAL_RUN_FIRST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 0);
 
   GST_DEBUG_CATEGORY_INIT (sync_server_debug, "syncserver", 0, "GstSyncServer");
+
+  /**
+   * GstSyncServer::client-joined:
+   * @server: the #GstSynclServer
+   * @id: (transfer none): the client ID as a string
+   * @config: (transfer none): client-specific configuration as a #GVariant
+   *          dictionary
+   *
+   * Emitted whenever a new client connects.
+   */
+  g_signal_new_class_handler ("client-joined", GST_TYPE_SYNC_SERVER,
+      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_STRING,
+      G_TYPE_VARIANT, NULL);
+
+  /**
+   * GstSyncServer::client-left:
+   * @server: the #GstSyncr
+   * @id: (transfer none): the client ID as a string
+   *
+   * Emitted whenever a client disconnects.
+   */
+  g_signal_new_class_handler ("client-left", GST_TYPE_SYNC_SERVER,
+      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING,
+      NULL);
 }
 
 static void
@@ -675,8 +724,15 @@ gst_sync_server_start (GstSyncServer * server, GError ** error)
     goto fail;
   }
 
-  if (!server->server)
-    server->server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
+  if (!server->server) {
+    GstSyncControlTcpServer *tcp_server;
+
+    tcp_server = g_object_new (GST_TYPE_SYNC_CONTROL_TCP_SERVER, NULL);
+    g_object_set (server, "control-server", tcp_server, NULL);
+
+    g_object_unref (tcp_server);
+  }
+
   g_return_val_if_fail (GST_IS_SYNC_CONTROL_SERVER (server->server), FALSE);
 
   if (server->control_addr) {

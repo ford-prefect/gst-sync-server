@@ -35,6 +35,9 @@
  *     properties to specify the network address for the client implementation
  *     to connect to.
  *
+ *   * The GstSyncControlClient:id and GstSyncControlClient:config for when we
+ *     want to send per-client configuration to the server.
+ *
  *   * The GstSyncControlServer:sync-info property which is first set up when
  *     the client connects, and then updated when updated information is
  *     received from the server.
@@ -58,6 +61,31 @@ G_DEFINE_INTERFACE (GstSyncControlClient, gst_sync_control_client,
 static void
 gst_sync_control_client_default_init (GstSyncControlClientInterface * iface)
 {
+  /**
+   * GstSyncControlClient:id:
+   *
+   * Unique client identifier used by the server for client-specific
+   * configuration. Automatically generated if set to NULL. Only has an effect
+   * if set before the client is started.
+   */
+  g_object_interface_install_property (iface,
+      g_param_spec_string ("id", "ID", "Unique client identifier", NULL,
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  /**
+   * GstSyncControlClient:config:
+   *
+   * Client configuration, which can include any data about the client that the
+   * server can use. This can include such things as display configuration,
+   * position, orientation where transformations need to be applied. The
+   * information is provided as a dictionary stored in a #GVariant. Only has an
+   * effect if set before the client is started.
+   */
+  g_object_interface_install_property (iface,
+      g_param_spec_variant ("config", "Config", "Client configuration",
+        G_VARIANT_TYPE ("a{sv}"), NULL,
+        G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
   /**
    * GstSyncControlClient:address:
    *
