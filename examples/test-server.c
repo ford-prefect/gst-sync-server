@@ -169,7 +169,7 @@ client_left_cb (GstSyncServer * server, gchar * id, gpointer user_data)
 int main (int argc, char **argv)
 {
   GstSyncServer *server;
-  GError *err;
+  GError *err = NULL;
   GOptionContext *ctx;
   GIOChannel *input;
   static GOptionEntry entries[] =
