@@ -25,6 +25,7 @@
 #define DEFAULT_ADDR "127.0.0.1"
 #define DEFAULT_PORT 3695
 
+static gchar *id = NULL;
 static gchar *addr = NULL;
 static gint port = DEFAULT_PORT;
 
@@ -36,6 +37,8 @@ int main (int argc, char **argv)
   GOptionContext *ctx;
   static GOptionEntry entries[] =
   {
+    { "id", 'i', 0, G_OPTION_ARG_STRING, &id, "Client ID to send to server",
+      "ID" },
     { "address", 'a', 0, G_OPTION_ARG_STRING, &addr, "Address to connect to",
       "ADDR" },
     { "port", 'p', 0, G_OPTION_ARG_INT, &port, "Port to connect to",
@@ -61,6 +64,9 @@ int main (int argc, char **argv)
 
   client = gst_sync_client_new (addr, port);
 
+  if (id)
+    g_object_set (G_OBJECT (client), "id", id, NULL);
+
   loop = g_main_loop_new (NULL, FALSE);
 
   if (!gst_sync_client_start (client, &err)) {
@@ -76,5 +82,6 @@ done:
   g_main_loop_unref (loop);
   g_object_unref (client);
 
+  g_free (id);
   g_free (addr);
 }
