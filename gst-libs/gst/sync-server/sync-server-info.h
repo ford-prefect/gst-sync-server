@@ -40,6 +40,7 @@ gboolean   gst_sync_server_info_get_stopped (GstSyncServerInfo * info);
 gboolean   gst_sync_server_info_get_paused (GstSyncServerInfo * info);
 guint64    gst_sync_server_info_get_base_time_offset (GstSyncServerInfo * info);
 guint64    gst_sync_server_info_get_stream_start_delay (GstSyncServerInfo * info);
+GVariant * gst_sync_server_info_get_transform (GstSyncServerInfo * info);
 
 G_END_DECLS
 

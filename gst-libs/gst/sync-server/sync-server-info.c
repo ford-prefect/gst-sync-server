@@ -40,6 +40,7 @@ struct _GstSyncServerInfo {
   gchar *clock_addr;
   guint clock_port;
   GVariant *playlist;
+  GVariant *transform;
   guint64 base_time;
   guint64 latency;
   gboolean stopped;
@@ -86,6 +87,7 @@ enum {
   PROP_PAUSED,
   PROP_BASE_TIME_OFFSET,
   PROP_STREAM_START_DELAY,
+  PROP_TRANSFORM,
 };
 
 static void
@@ -97,6 +99,8 @@ gst_sync_server_info_dispose (GObject * object)
 
   if (info->playlist)
     g_variant_unref (info->playlist);
+  if (info->transform)
+    g_variant_unref (info->transform);
 }
 
 static JsonNode *
@@ -105,6 +109,15 @@ gst_sync_server_info_serialize_property (JsonSerializable *serializable,
 {
   if (g_str_equal (property_name, "playlist")) {
     return json_gvariant_serialize (g_value_get_variant (value));
+
+  } else if (g_str_equal (property_name, "transform")) {
+    GVariant *transform = g_value_get_variant (value);
+
+    if (transform)
+      return json_gvariant_serialize (transform);
+    else
+      return json_node_new (JSON_NODE_NULL);
+
   } else {
     return json_serializable_default_serialize_property (serializable,
         property_name, value, pspec);
@@ -124,6 +137,24 @@ gst_sync_server_info_deserialize_property (JsonSerializable *serializable,
 
     if (playlist) {
       g_value_set_variant (value, playlist);
+      return TRUE;
+    } else
+      return FALSE;
+
+  } else if (g_str_equal (property_name, "transform")) {
+    GVariant *transform;
+
+    if (JSON_NODE_HOLDS_NULL (property_node)) {
+      g_value_set_variant (value, NULL);
+      return TRUE;
+    }
+
+    /* Non-null transform */
+    transform = json_gvariant_deserialize (property_node,
+        GST_SYNC_SERVER_TRANSFORM_FORMAT_STRING, NULL);
+
+    if (transform) {
+      g_value_set_variant (value, transform);
       return TRUE;
     } else
       return FALSE;
@@ -185,6 +216,13 @@ gst_sync_server_info_set_property (GObject * object, guint property_id,
       info->stream_start_delay = g_value_get_uint64 (value);
       break;
 
+    case PROP_TRANSFORM:
+      if (info->transform)
+        g_variant_unref (info->transform);
+
+      info->transform = g_value_dup_variant (value);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -236,6 +274,10 @@ gst_sync_server_info_get_property (GObject * object, guint property_id,
 
     case PROP_STREAM_START_DELAY:
       g_value_set_uint64 (value, info->stream_start_delay);
+      break;
+
+    case PROP_TRANSFORM:
+      g_value_set_variant (value, info->transform);
       break;
 
     default:
@@ -303,6 +345,12 @@ gst_sync_server_info_class_init (GstSyncServerInfoClass * klass)
   g_object_class_install_property (object_class, PROP_PAUSED,
       g_param_spec_boolean ("paused", "Paused",
         "Whether playback is currently paused", FALSE,
+        G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_TRANSFORM,
+      g_param_spec_variant ("transform", "Transformation",
+        "Set of transformations for clients to apply",
+        GST_TYPE_SYNC_SERVER_TRANSFORM, NULL,
         G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 }
 
@@ -377,4 +425,13 @@ guint64
 gst_sync_server_info_get_stream_start_delay (GstSyncServerInfo * info)
 {
   return info->stream_start_delay;
+}
+
+GVariant *
+gst_sync_server_info_get_transform (GstSyncServerInfo * info)
+{
+  if (info->transform)
+    return g_variant_ref (info->transform);
+  else
+    return NULL;
 }

@@ -153,6 +153,146 @@ set_base_time (GstSyncClient * self)
       self->seek_offset);
 }
 
+#define LOOKUP_AND_SET(v, e, prop, typ, val)            \
+  if (g_variant_lookup (v, prop, typ, &val))            \
+    g_object_set (G_OBJECT (e), prop, val, NULL);
+
+#define LOOKUP_AND_SET_NEG(v, e, prop, typ, val)        \
+  if (g_variant_lookup (v, prop, typ, &val))            \
+    g_object_set (G_OBJECT (e), prop, -val, NULL);
+
+#define MAYBE_ADD(b, e)                                 \
+  if (e)                                                \
+    gst_bin_add (GST_BIN (b), e);
+
+#define MAYBE_LINK(e, f, l)                             \
+  if (e) {                                              \
+    if (l)                                              \
+      g_assert (gst_element_link (l, e));               \
+    else                                                \
+      f = e;                                            \
+    l = e;                                              \
+  }
+
+static void
+update_transform (GstSyncClient * self)
+{
+  GVariant *all = NULL, *transforms = NULL, *transform = NULL;
+  guint64 v;
+  GstElement *filter = NULL, *crop = NULL, *rotate = NULL, *scale = NULL,
+             *scale_caps = NULL, *box = NULL;
+  GstElement *first = NULL, *last = NULL;
+  GstPad *target;
+
+  /* If we don't have a client ID, we can't look for our transformation */
+  if (!self->id)
+    goto done;
+
+  /* Get the dict of client -> transformation */
+  all =  gst_sync_server_info_get_transform (self->info);
+  if (!all)
+    goto done;
+
+  /* Look up our transformation */
+  transforms = g_variant_lookup_value (all, self->id, G_VARIANT_TYPE_VARDICT);
+  if (!transforms)
+    goto done;
+
+  /* First look for crop parameters */
+  transform =
+    g_variant_lookup_value (transforms, "crop", G_VARIANT_TYPE_VARDICT);
+  if (transform) {
+    crop = gst_element_factory_make ("videocrop", NULL);
+
+    LOOKUP_AND_SET (transform, crop, "left", "x", v);
+    LOOKUP_AND_SET (transform, crop, "right", "x", v);
+    LOOKUP_AND_SET (transform, crop, "top", "x", v);
+    LOOKUP_AND_SET (transform, crop, "bottom", "x", v);
+
+    g_variant_unref (transform);
+  }
+
+  /* Now rotate/flip if required */
+  if (g_variant_lookup (transforms, "rotate", "x", &v)) {
+    rotate = gst_element_factory_make ("videoflip", NULL);
+    g_object_set (rotate, "video-direction", v);
+  }
+
+  /* Then scale */
+  transform =
+    g_variant_lookup_value (transforms, "scale", G_VARIANT_TYPE_VARDICT);
+  if (transform) {
+    GstCaps *caps;
+
+    scale = gst_element_factory_make ("videoscale", NULL);
+    scale_caps = gst_element_factory_make ("capsfilter", NULL);
+
+    caps = gst_caps_new_empty_simple ("video/x-raw");
+    if (g_variant_lookup (transform, "width", "x", &v))
+      gst_caps_set_simple (caps, "width", G_TYPE_INT, v, NULL);
+    if (g_variant_lookup (transform, "height", "x", &v))
+      gst_caps_set_simple (caps, "height", G_TYPE_INT, v, NULL);
+
+    g_object_set (G_OBJECT (scale_caps), "caps", caps, NULL);
+
+    gst_caps_unref (caps);
+    g_variant_unref (transform);
+  }
+
+  /* Finally, box it appropriately */
+  transform =
+    g_variant_lookup_value (transforms, "offset", G_VARIANT_TYPE_VARDICT);
+  if (transform) {
+    box = gst_element_factory_make ("videobox", NULL);
+
+    /* We apply the offests as negative values to add the box */
+    LOOKUP_AND_SET_NEG (transform, box, "left", "x", v);
+    LOOKUP_AND_SET_NEG (transform, box, "right", "x", v);
+    LOOKUP_AND_SET_NEG (transform, box, "top", "x", v);
+    LOOKUP_AND_SET_NEG (transform, box, "bottom", "x", v);
+
+    g_variant_unref (transform);
+  }
+
+  filter = gst_bin_new ("video-filter");
+
+  MAYBE_ADD (filter, crop);
+  MAYBE_ADD (filter, rotate);
+  MAYBE_ADD (filter, scale);
+  MAYBE_ADD (filter, scale_caps);
+  MAYBE_ADD (filter, box);
+
+  MAYBE_LINK (crop, first, last);
+  MAYBE_LINK (rotate, first, last);
+  MAYBE_LINK (scale, first, last);
+  MAYBE_LINK (scale_caps, first, last);
+  MAYBE_LINK (box, first, last);
+
+  /* We didn't find anything to filter, so done */
+  if (!first || !last) {
+    gst_object_unref (filter);
+    goto done;
+  }
+
+  target = gst_element_get_static_pad (first, "sink");
+  gst_element_add_pad (GST_ELEMENT (filter),
+      gst_ghost_pad_new ("sink", target));
+  gst_object_unref (target);
+
+  target = gst_element_get_static_pad (last, "src");
+  gst_element_add_pad (GST_ELEMENT (filter),
+      gst_ghost_pad_new ("src", target));
+  gst_object_unref (target);
+
+  g_object_set (G_OBJECT (self->pipeline), "video-filter", filter, NULL);
+
+done:
+  if (transforms)
+    g_variant_unref (transforms);
+  if (all)
+    g_variant_unref (all);
+}
+
 /* Call with info_lock held */
 static void
 update_pipeline (GstSyncClient * self, gboolean advance)
@@ -206,6 +346,8 @@ update_pipeline (GstSyncClient * self, gboolean advance)
 
   gst_pipeline_set_latency (self->pipeline,
       gst_sync_server_info_get_latency (self->info));
+
+  update_transform (self);
 
   if (gst_sync_server_info_get_stopped (self->info)) {
     /* Just stop the pipeline and we're done */

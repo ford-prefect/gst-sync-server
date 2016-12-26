@@ -57,6 +57,11 @@ GVariant * gst_sync_server_playlist_set_tracks (GVariant * playlist,
 GVariant * gst_sync_server_playlist_set_current_track (GVariant * playlist,
     guint64 current_track);
 
+
+#define GST_SYNC_SERVER_TRANSFORM_FORMAT_STRING ("a{sv}")
+#define GST_TYPE_SYNC_SERVER_TRANSFORM \
+  (G_VARIANT_TYPE (GST_SYNC_SERVER_TRANSFORM_FORMAT_STRING))
+
 G_END_DECLS
 
 #endif /* __GST_SYNC_SERVER_H */

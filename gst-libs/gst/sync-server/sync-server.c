@@ -68,6 +68,7 @@ struct _GstSyncServer {
   guint64 *durations;
   guint64 n_tracks;
   guint64 current_track; /* set to -1 at the end of the playlist */
+  GVariant *transform;
   GHashTable *fakesinks;
 
   gboolean server_started;
@@ -102,6 +103,7 @@ enum {
   PROP_PLAYLIST,
   PROP_LATENCY,
   PROP_STREAM_START_DELAY,
+  PROP_TRANSFORM,
 };
 
 #define DEFAULT_PORT 0
@@ -153,6 +155,11 @@ gst_sync_server_dispose (GObject * object)
   g_free (self->control_addr);
 
   free_playlist (self);
+
+  if (self->transform) {
+    g_variant_unref (self->transform);
+    self->transform = NULL;
+  }
 
   if (self->fakesinks) {
     g_hash_table_unref (self->fakesinks);
@@ -249,6 +256,7 @@ get_sync_info (GstSyncServer * self)
       "stream-start-delay", self->stream_start_delay,
       "stopped", self->stopped,
       "paused", self->paused, /* FIXME: Deal with pausing on live streams */
+      "transform", self->transform,
       NULL);
 
   return info;
@@ -354,6 +362,13 @@ gst_sync_server_set_property (GObject * object, guint property_id,
       self->stream_start_delay = g_value_get_uint64 (value);
       break;
 
+    case PROP_TRANSFORM:
+      if (self->transform)
+        g_variant_unref (self->transform);
+
+      self->transform = g_value_dup_variant (value);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -390,6 +405,10 @@ gst_sync_server_get_property (GObject * object, guint property_id,
 
     case PROP_STREAM_START_DELAY:
       g_value_set_uint64 (value, self->stream_start_delay);
+      break;
+
+    case PROP_TRANSFORM:
+      g_value_set_variant (value, self->transform);
       break;
 
     default:
@@ -481,6 +500,31 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
       g_param_spec_uint64 ("stream-start-delay", "Stream start delay",
         "Delay before starting stream playback", 0, G_MAXUINT64,
         DEFAULT_STREAM_START_DELAY,
+        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  /**
+   * GstSyncServer:transform:
+   *
+   * Provides a set of transformations for clients to apply before playing back
+   * streams. The value is a #GVariant dictionary where keys are client IDs and
+   * values are the transformations, which in turn are #GVariant dictionaries
+   * which can have the following keys:
+   *
+   * - "crop": A dictionary with keys "left", "right", "top", "bottom", each of
+   *   which has a value representing the number of pixels to be cropped in
+   *   that direction. Only those sides that must be cropped need to be
+   *   specified. (gint32)
+   * - "offset": A dictionary with keys "left", "right", "top", "bottom",
+   *   specifying the required pixel offsets. (gint32)
+   * - "scale": A dictionary with target "width" and "height" parameters.
+   *   (gint32)
+   * - "rotate": An integer value from the #GstVideoOrientationMethod enum.
+   *   (guint32)
+   */
+  g_object_class_install_property (object_class, PROP_TRANSFORM,
+      g_param_spec_variant ("transform", "Transformation",
+        "Set of transformations for clients to apply",
+        GST_TYPE_SYNC_SERVER_TRANSFORM, NULL,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /**
