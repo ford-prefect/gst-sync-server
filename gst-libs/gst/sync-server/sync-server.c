@@ -380,7 +380,8 @@ gst_sync_server_get_property (GObject * object, guint property_id,
       break;
 
     case PROP_PLAYLIST:
-      g_value_set_variant (value, NULL /* FIXME */);
+      g_value_take_variant (value, gst_sync_server_playlist_new (self->uris,
+            self->durations, self->n_tracks, self->current_track));
       break;
 
     case PROP_LATENCY:
