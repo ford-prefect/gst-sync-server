@@ -33,6 +33,7 @@
 #define MAX_TRACKS 1000
 
 static gchar *playlist_path = NULL;
+static gchar *config_path = NULL;
 static gchar *uris[MAX_TRACKS];
 static guint64 durations[MAX_TRACKS];
 static guint64 n_tracks;
@@ -65,6 +66,45 @@ read_playlist_file (const gchar * path)
   }
 
   n_tracks = i;
+
+  ret = TRUE;
+
+done:
+  if (file)
+    g_object_unref (file);
+  if (contents)
+    g_free (contents);
+
+  return ret;
+}
+
+static gboolean
+read_config_file (GstSyncServer * server, const char * path)
+{
+  GFile *file = NULL;
+  char *contents = NULL, *parse_err;
+  gsize length;
+  gboolean ret = FALSE;
+  GVariant *config;
+  GError *err = NULL;
+
+  file = g_file_new_for_path (path);
+
+  if (!g_file_load_contents (file, NULL, &contents, &length, NULL, NULL)) {
+    g_message ("Could not read config file");
+    goto done;
+  }
+
+  config = g_variant_parse (GST_TYPE_SYNC_SERVER_TRANSFORM, contents, NULL,
+      NULL, &err);
+  if (!config) {
+    parse_err = g_variant_parse_error_print_context (err, contents);
+    g_warning ("Could not parse config file: %s", parse_err);
+    g_error_free (err);
+    g_free (parse_err);
+  }
+
+  g_object_set (G_OBJECT (server), "transform", config, NULL);
 
   ret = TRUE;
 
@@ -176,6 +216,8 @@ int main (int argc, char **argv)
   {
     { "playlist", 'f', 0, G_OPTION_ARG_STRING, &playlist_path,
       "Path to playlist file", "PLAYLIST" },
+    { "config", 'c', 0, G_OPTION_ARG_STRING, &config_path,
+      "Client config file", "CONFIG" },
     { "address", 'a', 0, G_OPTION_ARG_STRING, &addr, "Address to listen on",
       "ADDR" },
     { "port", 'p', 0, G_OPTION_ARG_INT, &port, "Port to listen on",
@@ -212,6 +254,9 @@ int main (int argc, char **argv)
   g_object_set (server, "playlist",
       gst_sync_server_playlist_new (uris, durations, n_tracks, 0), NULL);
 
+  if (config_path && !read_config_file (server, config_path))
+    return -1;
+
   if (latency)
     g_object_set (server, "latency", latency, NULL);
 
@@ -239,5 +284,6 @@ int main (int argc, char **argv)
   g_io_channel_unref (input);
 
   g_free (playlist_path);
+  g_free (config_path);
   g_free (addr);
 }
