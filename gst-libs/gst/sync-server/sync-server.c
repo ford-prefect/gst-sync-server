@@ -549,7 +549,7 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
 
   /**
    * GstSyncServer::client-joined:
-   * @server: the #GstSynclServer
+   * @server: the #GstSyncServer
    * @id: (transfer none): the client ID as a string
    * @config: (transfer none): client-specific configuration as a #GVariant
    *          dictionary
@@ -562,7 +562,7 @@ gst_sync_server_class_init (GstSyncServerClass * klass)
 
   /**
    * GstSyncServer::client-left:
-   * @server: the #GstSyncr
+   * @server: the #GstSyncServer
    * @id: (transfer none): the client ID as a string
    *
    * Emitted whenever a client disconnects.
