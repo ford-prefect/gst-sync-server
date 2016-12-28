@@ -1,7 +1,6 @@
 # TODO
 
 - Implement features:
-  - Support for video wall mode (tell clients what video geometry to play)
   - Looping
   - Seek
   - Gapless?
