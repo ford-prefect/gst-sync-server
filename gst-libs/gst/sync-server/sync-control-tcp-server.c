@@ -168,8 +168,10 @@ get_client_info (GstSyncControlTcpServer * self, GSocketConnection * conn)
 
   node = json_from_string (buf, &err);
   if (!node) {
-    g_message ("Could not parse client info: %s", err->message);
-    g_error_free (err);
+    if (err) {
+      g_message ("Could not parse client info: %s", err->message);
+      g_error_free (err);
+    }
     goto done;
   }
 
