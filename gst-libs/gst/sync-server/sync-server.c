@@ -709,9 +709,10 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
         if (self->current_track + 1 == self->n_tracks) {
           self->current_track = -1;
           g_signal_emit_by_name (self, "end-of-playlist");
+        } else {
+          /* Go to the next track */
+          update_pipeline (self, TRUE);
         }
-
-        update_pipeline (self, TRUE);
       }
 
       break;
