@@ -430,6 +430,18 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
 
       gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
 
+      if (old_state == GST_STATE_READY && new_state == GST_STATE_PAUSED) {
+        GstElement *audio_sink;
+
+        g_object_get (G_OBJECT (self->pipeline), "audio-sink", &audio_sink,
+            NULL);
+
+        g_object_set (G_OBJECT (audio_sink), "drift-tolerance", 10000 /* µs */,
+            "alignment-threshold", 10 * GST_MSECOND, NULL);
+
+        gst_object_unref (audio_sink);
+      }
+
       if (old_state != GST_STATE_PAUSED && new_state != GST_STATE_PLAYING)
         break;
 
