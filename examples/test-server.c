@@ -230,6 +230,10 @@ int main (int argc, char **argv)
   ctx = g_option_context_new ("gst-sync-server example server");
   g_option_context_add_main_entries (ctx, entries, NULL);
   g_option_context_add_group (ctx, gst_init_get_option_group ());
+  g_option_context_set_description (ctx,
+      "The playlist file is a simple text file with each line containing one\n"
+      "URI and the corresponding duration in ns, separated by a space. The\n"
+      "duration can be set to -1 if unknown.\n");
 
   if (!g_option_context_parse (ctx, &argc, &argv, &err)) {
     g_print ("Failed to parse command line arguments: %s\n", err->message);
