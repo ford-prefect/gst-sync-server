@@ -239,7 +239,7 @@ int main (int argc, char **argv)
   g_option_context_free (ctx);
 
   if (!playlist_path) {
-    g_print ("You must specify a URI or playlist path\n");
+    g_print ("You must specify a playlist path.\n");
     return -1;
   }
 
