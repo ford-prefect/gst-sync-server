@@ -7,6 +7,10 @@ Use cases include multi-room audio playback, video walls, and any other
 situation where it is required that possibly heteregenous devices on a network
 need to playback the same audio/video stream.
 
+There is a talk about this library at:
+
+  * https://gstconf.ubicast.tv/videos/synchronised-playback-made-easy/
+
 You can read more at:
 
   * An introduction to `gst-sync-server`: https://arunraghavan.net/2016/11/gstreamer-and-synchronisation-made-easy/
