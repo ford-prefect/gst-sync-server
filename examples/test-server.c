@@ -59,7 +59,11 @@ read_playlist_file (const gchar * path)
   }
 
   for (i = 0, read = 0; read <length; i++) {
-    sscanf (&contents[read], "%s %lu\n%n", uri, &durations[i], &len);
+    if (sscanf (&contents[read], "%s %lu\n%n", uri, &durations[i], &len) != 2) {
+      g_message ("Error parsing URI at line: %s", &contents[read]);
+      goto done;
+    }
+
     uris[i] = g_strdup (uri);
 
     read += len;
