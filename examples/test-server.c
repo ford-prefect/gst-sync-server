@@ -139,6 +139,9 @@ con_read_cb (GIOChannel * input, GIOCondition cond, gpointer user_data)
   g_strstrip (str);
   tok = g_strsplit (str, " ", 2);
 
+  if (!tok[0])
+    goto done;
+
   if (g_str_equal (tok[0], "pause")) {
     gst_sync_server_set_paused (server, TRUE);
 
