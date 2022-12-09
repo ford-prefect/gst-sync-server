@@ -67,9 +67,9 @@ struct _GstSyncClient {
 
   /* See bus_cb() for why this needs to be atomic */
   volatile int seek_state;
-  GstClockTime seek_offset;
+  gint64 seek_offset;
 
-  guint64 last_duration;
+  gint64 last_duration;
 };
 
 struct _GstSyncClientClass {
@@ -215,7 +215,7 @@ update_transform (GstSyncClient * self)
   /* Now rotate/flip if required */
   if (g_variant_lookup (transforms, "rotate", "x", &v)) {
     rotate = gst_element_factory_make ("videoflip", NULL);
-    g_object_set (rotate, "video-direction", v);
+    g_object_set (rotate, "video-direction", v, NULL);
   }
 
   /* Then scale */
@@ -297,7 +297,7 @@ done:
 static void
 update_pipeline (GstSyncClient * self, gboolean advance)
 {
-  gboolean is_live;
+  gboolean is_live = FALSE;
   gchar *uri, **uris;
   guint64 current_track, n_tracks, *durations, base_time_offset;
   GVariant *playlist;
@@ -506,7 +506,7 @@ bus_cb (GstBus * bus, GstMessage * message, gpointer user_data)
     }
 
     case GST_MESSAGE_EOS: {
-      guint64 next_track, n_tracks;
+      guint64 n_tracks, G_GNUC_UNUSED next_track;
       GVariant *playlist;
 
       if (GST_MESSAGE_SRC (message) != GST_OBJECT (self->pipeline))
@@ -806,7 +806,6 @@ sync_info_notify (GObject * object, GParamSpec * pspec, gpointer user_data)
   GstSyncServerInfo *info;
   gchar *clock_addr, *playlist_str;
   GVariant *playlist;
-  int i;
 
   info = gst_sync_control_client_get_sync_info (self->client);
 
